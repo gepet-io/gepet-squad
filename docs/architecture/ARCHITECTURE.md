@@ -182,19 +182,54 @@ Détail dans l'[ADR 0003](adr/0003-journal-evenements-et-etat-fusionne.md).
 
     `message` est générique et **affichable** : c'est lui qu'on recopie dans `warnings[]`. `detail` contient le stderr brut tronqué de `gh` ; il n'est **pas affichable** et ne va que sur le stderr du serveur (ADR 0005).
   - **Limite multi-repo** : en layout `multirepo`, seules les issues, les milestones et les **PR du repo hub** (`repo` de `.gepet-squad.json`) sont lues. Les PR des sous-repos (`scopes.<x>.repo`) n'apparaissent pas dans `pulls`. La vue s'appuie donc sur les labels `status:*` des issues du hub, qui suffisent pour placer les features. Lire les PR des sous-repos demandera un ADR.
-- **État fusionné** : servi par `/state` et calculé par un réducteur pur.
-  `{ repo, updatedAt, milestones[], features[{ number, title, milestone, status, retry, pr, station }], agents[{ id, type, mode, issue, pr, phase: requested|running|reported|finished|unknown, since }], releases[], warnings[{ code, message, at }] }`.
-  `warnings` est vide quand tout va bien. Il porte par exemple `GH_AUTH` quand `gh` échoue.
-  En cas de conflit sur le statut d'une feature, **GitHub fait foi** : le journal ne sert qu'à animer l'intervalle entre deux recalages.
-- **Correspondance avec les stations** :
-  - Cadrage : architecte en `CADRAGE_*` ;
-  - Roadmap : architecte en `REVUE_ROADMAP`, et les issues `backlog` ou `ready` en file d'attente ;
-  - Dev : `in-progress`, ou `changes-requested` avec un badge retry ;
-  - Vérification : `in-review` ;
-  - Test : `in-test` ;
-  - Merge : `done` ;
-  - Release : milestone fermé ou PR `release/*` ouverte ;
-  - `blocked` : zone « escalade » rouge, accolée à la station où la feature était.
+- **État fusionné (contrat `/state`)** : calculé par la fonction pure `reduce(snapshot, events, now, { warnings })` de `viz/lib/reducer.cjs`. L'en-tête de ce module fait foi. C'est ce contrat que suit `viz-web` (`state.js`, `layout.js`).
+  ```
+  { repo:       "owner/nom" | null,                       // celui de l'instantané
+    updatedAt:  "<ISO>",                                  // = now
+    milestones: [{ number, title, state: "open"|"closed", total, done }],
+    features:   [{ number, title, milestone, status, retry, pr, station, escalated }],
+    agents:     [{ id, type, mode, issue, pr, attempt, station, phase, since, updatedAt, finishedAt,
+                   verdict, block, agentId, toolUseId }],
+    releases:   [{ branch, pr, state: "open"|"merged"|"closed", title, milestone }],
+    warnings:   [{ code, message, at }] }
+  ```
+  - **Identifiants de station** (en minuscules) : `cadrage`, `roadmap`, `dev`, `verification`, `test`, `merge`, `release`, plus `escalade` pour les agents.
+  - **`milestones[]`** : la liste est triée par numéro. `total` est le nombre de features du milestone, et `done` le nombre de celles qui sont en `status: "done"`.
+  - **`features[]`** :
+    - la liste est triée par numéro. Seules les issues qui portent un label `status:*` sont des features ; une issue fermée sans `status:done` (remplacée) est écartée ;
+    - `title` et `milestone` (titre du milestone) valent `null` quand on ne les connaît pas, `retry` vaut `0` sans label `retry:K`, et `pr` est le numéro de la PR de la feature ou `null` ;
+    - `escalated` vaut `true` seulement pour une feature `blocked`. Dans ce cas, `station` donne la **station d'accolement** de la zone d'escalade : la dernière station connue par le journal (hors `blocked`), ou `dev` à défaut.
+  - **`agents[]`** :
+    - la liste est triée par `since` ;
+    - `type` est le nom court de l'agent (`developpeur`, sans le préfixe `claude-gepet-squad:`) ;
+    - `id` est la clé de corrélation d'origine (`toolUseId`, sinon `agentId`). Il reste **stable** ensuite, et c'est lui qu'on utilise comme clé de rendu ;
+    - `agentId` et `toolUseId` sont les identifiants connus, ou `null` ;
+    - `phase` vaut `requested`, `running`, `reported`, `finished` ou `unknown` ;
+    - `since` est le premier signal, `updatedAt` le dernier, et `finishedAt` la fin (agents `finished`, sinon `null`). Toutes les dates sont au format ISO ;
+    - `station` vaut `cadrage`, `roadmap`, `dev`, `verification`, `test`, `escalade` ou `null` ;
+    - `verdict` et `block` reprennent ceux du rapport, ou `null`.
+  - **`releases[]`** : les PR `release/*` de l'instantané, plus les `release.opened` postérieurs, triées par branche. `milestone` est le titre du milestone `M<k>` qui correspond à `release/m<k>-…`, ou `null`.
+  - **`warnings[]`** :
+    - d'abord ceux de l'appelant, passés par le 4ᵉ argument `{ warnings }` : `GH_REPO`, `GH_CONFIG`, `GH_MISSING`, `GH_AUTH`, `GH_TIMEOUT`, `GH_PARSE` (seuls `code`, `message` et `at` sont recopiés) ;
+    - ensuite ceux du réducteur :
+      - `SNAPSHOT_MISSING` : pas d'instantané, l'état est construit à partir du journal seul ;
+      - `SNAPSHOT_STALE` : instantané vieux de plus de 5 min ;
+      - `EVENT_INCOMPLETE` : un avertissement par type d'événement ignoré faute de champ obligatoire ;
+      - `EVENT_ERROR` : un événement qui a provoqué une erreur interne et a été ignoré.
+
+    La liste est vide quand tout va bien.
+  - **GitHub fait foi** : les événements `feature.*` et `milestone.changed` ne s'appliquent que s'ils sont postérieurs à `snapshot.fetchedAt`, alors que les événements `agent.*` comptent tous. Un `status: "done"` reçu par le journal remet `retry` à `0`.
+- **Correspondance avec les stations** (priorité de haut en bas) :
+  1. `blocked` : zone « escalade » rouge, avec `escalated: true` et `station` égale à la station d'accolement. Cette règle **l'emporte** sur toutes les autres, y compris dans un milestone fermé.
+  2. Release : **toutes** les features d'un milestone fermé, et les features **`done` seulement** d'un milestone qui a une PR `release/*` ouverte.
+  3. Sinon, selon le statut :
+     - `backlog` et `ready` → Roadmap ;
+     - `in-progress` et `changes-requested` (avec un badge retry) → Dev ;
+     - `in-review` → Vérification ;
+     - `in-test` → Test ;
+     - `done` → Merge.
+
+  Côté agents, l'architecte en `CADRAGE_*` est placé en Cadrage, et en `REVUE_ROADMAP` en Roadmap.
 - **Données personnelles** : uniquement des logins GitHub et des titres d'issues, déjà présents sur le repo. Aucune sauvegarde n'est nécessaire, car GitHub permet de tout reconstruire.
 
 ## 7. Sécurité
