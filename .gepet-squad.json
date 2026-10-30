@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "repo": "gepets/claude-gepet-squad",
+  "layout": "monorepo",
+  "scopes": {},
+  "branches": { "integration": "develop", "production": "main" },
+  "maxParallelDevs": 3,
+  "maxRetries": 3
+}
