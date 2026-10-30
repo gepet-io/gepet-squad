@@ -1,0 +1,18 @@
+{
+  "name": "claude-gepet-squad-tooling",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Outillage de développement (lint, tests) du plugin claude-gepet-squad. Jamais exécuté chez l'utilisateur du plugin.",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "test": "node --test",
+    "lint": "eslint ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.13.0",
+    "globals": "^17.13.0"
+  }
+}

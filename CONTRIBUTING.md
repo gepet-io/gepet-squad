@@ -41,3 +41,16 @@ Créez `skills/<nom>/SKILL.md` avec un frontmatter `name`, `description` et éve
 3. `claude plugin validate .`
 4. Commit, puis push.
 5. Sur chaque machine : `/plugin marketplace update claude-gepet-squad`, puis redémarrer Claude Code.
+
+## Lint et tests
+
+L'outillage (ESLint, tests `node:test`) ne sert qu'au développement : le plugin n'a aucune dépendance npm à l'exécution.
+
+```bash
+npm ci            # installe ESLint (devDependencies uniquement)
+npm run lint      # eslint .
+npm test          # node --test : tests/**/*.test.{cjs,mjs}
+bash -n scripts/bootstrap.sh
+```
+
+Les helpers de test sont dans `tests/helpers/` : repo git temporaire avec worktree (`createTempRepo`), faux `gh` placé en tête du `PATH` (`installFakeGh`, avec `gh.cmd` pour Windows) et client SSE (`openSse`). La CI GitHub Actions (`.github/workflows/ci.yml`) lance ces mêmes commandes sur ubuntu et windows.
