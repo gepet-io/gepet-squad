@@ -1,0 +1,96 @@
+{
+  "repo": "o/r",
+  "fetchedAt": "2026-10-30T12:00:00.000Z",
+  "issues": [
+    {
+      "number": 3,
+      "title": "Journal d'événements",
+      "state": "closed",
+      "labels": ["status:done"],
+      "status": "done",
+      "retry": null,
+      "milestone": "M1 — Collecte",
+      "milestoneNumber": 1
+    },
+    {
+      "number": 12,
+      "title": "Récupérer l'instantané GitHub",
+      "state": "open",
+      "labels": ["scope:viz-server", "status:in-progress", "retry:1", "retry:2"],
+      "status": "in-progress",
+      "retry": 2,
+      "milestone": "M2 — Serveur temps réel",
+      "milestoneNumber": 2
+    },
+    {
+      "number": 20,
+      "title": "Sans label ni milestone",
+      "state": "open",
+      "labels": [],
+      "status": null,
+      "retry": null,
+      "milestone": null,
+      "milestoneNumber": null
+    }
+  ],
+  "milestones": [
+    {
+      "number": 1,
+      "title": "M1 — Collecte",
+      "state": "closed",
+      "openIssues": 0,
+      "closedIssues": 5,
+      "dueOn": "2026-10-31T07:00:00Z"
+    },
+    {
+      "number": 2,
+      "title": "M2 — Serveur temps réel",
+      "state": "open",
+      "openIssues": 3,
+      "closedIssues": 1,
+      "dueOn": null
+    }
+  ],
+  "pulls": [
+    {
+      "number": 30,
+      "title": "feat(hooks): journal",
+      "state": "merged",
+      "head": "feature/3-journal",
+      "base": "develop",
+      "url": "https://github.com/o/r/pull/30",
+      "draft": false,
+      "mergedAt": "2026-10-29T10:00:00Z"
+    },
+    {
+      "number": 35,
+      "title": "release: M0",
+      "state": "merged",
+      "head": "release/m0-socle",
+      "base": "main",
+      "url": "https://github.com/o/r/pull/35",
+      "draft": false,
+      "mergedAt": "2026-10-28T10:00:00Z"
+    },
+    {
+      "number": 40,
+      "title": "feat(viz-server): instantané GitHub",
+      "state": "open",
+      "head": "feature/12-instantane-github",
+      "base": "develop",
+      "url": "https://github.com/o/r/pull/40",
+      "draft": true,
+      "mergedAt": null
+    },
+    {
+      "number": 41,
+      "title": "release: M1",
+      "state": "open",
+      "head": "release/m1-collecte",
+      "base": "main",
+      "url": "https://github.com/o/r/pull/41",
+      "draft": false,
+      "mergedAt": "0001-01-01T00:00:00Z"
+    }
+  ]
+}
