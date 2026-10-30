@@ -35,11 +35,12 @@ const STATUSES = new Set([
 
 // Options de `gh issue` et `gh pr` qui prennent une valeur (forme courte -> forme longue).
 // Toute autre option est considérée comme un booléen.
-const GH_SHORT_VALUE_FLAGS = { R: "repo", t: "title", b: "body", F: "body-file", m: "milestone", l: "label", H: "head", B: "base", c: "comment", a: "assignee", r: "reason" };
+const GH_SHORT_VALUE_FLAGS = { R: "repo", t: "title", b: "body", F: "body-file", m: "milestone", l: "label", H: "head", B: "base", c: "comment", a: "assignee", r: "reason", A: "author-email" };
 const GH_LONG_VALUE_FLAGS = new Set([
   "repo", "title", "body", "body-file", "milestone", "label", "head", "base", "comment", "assignee", "reason",
   "add-label", "remove-label", "add-assignee", "remove-assignee", "add-project", "remove-project",
   "reviewer", "project", "template", "editor-mode",
+  "match-head-commit", "subject", "author-email",
 ]);
 
 // Options de `gh api` qui prennent une valeur.
@@ -229,12 +230,18 @@ function parseNumber(token) {
   return Number.isSafeInteger(n) ? n : undefined;
 }
 
+function allNumbers(positionals) {
+  return positionals.map(parseNumber).filter((n) => n !== undefined);
+}
+
 function firstNumber(positionals) {
-  for (const p of positionals) {
-    const n = parseNumber(p);
-    if (n !== undefined) return n;
-  }
-  return undefined;
+  return allNumbers(positionals)[0];
+}
+
+// Une valeur qui contient une expansion shell non développée (`$BRANCH`, `$(cmd)`, accents graves) n'est
+// pas la vraie valeur : on ne la recopie pas.
+function hasShellExpansion(value) {
+  return typeof value === "string" && /[$`]/.test(value);
 }
 
 function shorten(value) {
@@ -253,20 +260,20 @@ function labels(flags, name) {
 
 function issueEdit(args) {
   const { positionals, flags } = parseArgs(args, GH_SHORT_VALUE_FLAGS, GH_LONG_VALUE_FLAGS);
-  const issue = firstNumber(positionals);
-  if (issue === undefined) return [];
-  const events = [];
+  // `gh issue edit` accepte plusieurs numéros : un jeu d'événements par issue.
+  const issues = allNumbers(positionals);
+  const changes = [];
   for (const label of labels(flags, "add-label")) {
     const status = /^status:(.+)$/.exec(label);
     if (status && STATUSES.has(status[1])) {
-      events.push({ type: "feature.status", issue, status: status[1] });
+      changes.push({ type: "feature.status", status: status[1] });
       continue;
     }
     const retry = /^retry:(\d+)$/.exec(label);
     const count = retry ? Number.parseInt(retry[1], 10) : NaN;
-    if (Number.isSafeInteger(count) && count >= 1) events.push({ type: "feature.retry", issue, retry: count });
+    if (Number.isSafeInteger(count) && count >= 1) changes.push({ type: "feature.retry", retry: count });
   }
-  return events;
+  return issues.flatMap((issue) => changes.map((change) => ({ ...change, issue })));
 }
 
 function issueClose(args) {
@@ -278,7 +285,8 @@ function issueClose(args) {
 function issueCreate(args) {
   const { flags } = parseArgs(args, GH_SHORT_VALUE_FLAGS, GH_LONG_VALUE_FLAGS);
   // `ref` (titre du milestone) est obligatoire pour issue.created (ARCHITECTURE § 6) : sans milestone, rien.
-  const ref = shorten(lastFlag(flags, "milestone"));
+  const milestone = lastFlag(flags, "milestone");
+  const ref = hasShellExpansion(milestone) ? undefined : shorten(milestone);
   if (ref === undefined) return [];
   const statusLabel = labels(flags, "label")
     .map((label) => /^status:(.+)$/.exec(label))
@@ -288,7 +296,8 @@ function issueCreate(args) {
 
 function prCreate(args) {
   const { flags } = parseArgs(args, GH_SHORT_VALUE_FLAGS, GH_LONG_VALUE_FLAGS);
-  const head = shorten(lastFlag(flags, "head"));
+  const rawHead = lastFlag(flags, "head");
+  const head = hasShellExpansion(rawHead) ? undefined : shorten(rawHead);
   if (head === undefined) return [];
   // `--head owner:branche` pour une PR depuis un fork.
   const ref = shorten(head.includes(":") ? head.slice(head.indexOf(":") + 1) : head);
