@@ -281,7 +281,8 @@ function classifyExecError(error, stderr = "") {
  */
 function readConfig(cwd) {
   const root = findSquadRoot(cwd);
-  if (!root) throw new GhError("GH_CONFIG", `${CONFIG_FILE} introuvable depuis ${cwd}.`);
+  // Le dossier de départ est un chemin local : il reste dans `detail`, jamais dans `message` (affichable).
+  if (!root) throw new GhError("GH_CONFIG", `${CONFIG_FILE} introuvable.`, `recherché depuis ${cwd}`);
   try {
     const config = JSON.parse(fs.readFileSync(path.join(root, CONFIG_FILE), "utf8"));
     if (!config || typeof config !== "object" || Array.isArray(config)) throw new Error("pas un objet");
