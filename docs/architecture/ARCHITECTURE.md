@@ -89,14 +89,15 @@ Le schéma d'événement v1 vit dans `hooks/lib/schema.cjs` : il appartient au s
 | Sous-projet | install | lint | build | test (suite complète) | démarrer |
 |---|---|---|---|---|---|
 | tous (racine) | `npm ci` (dev uniquement : ESLint) | `npm run lint` | — (aucun build) | `npm test` (= `node --test`) | — |
-| `hooks` | `npm ci` | `npx eslint hooks` | — | `node --test tests/hooks/` | déclenché par Claude Code via `hooks/hooks.json` |
-| `viz-server` | `npm ci` | `npx eslint viz/server.cjs viz/lib` | — | `node --test tests/viz-server/` | `node viz/server.cjs --project <dir> [--port 0]` ; `node viz/server.cjs status --project <dir> [--wait <s>]` (affiche l'URL si le pid du verrou est vivant, et nettoie un verrou périmé) ; `node viz/server.cjs stop --project <dir>` |
-| `viz-web` | `npm ci` | `npx eslint viz/public/js` | — | `node --test tests/viz-web/` | servi par `viz-server` |
+| `hooks` | `npm ci` | `npx eslint hooks` | — | `node --test "tests/hooks/*.test.cjs"` | déclenché par Claude Code via `hooks/hooks.json` |
+| `viz-server` | `npm ci` | `npx eslint viz/server.cjs viz/lib` | — | `node --test "tests/viz-server/*.test.cjs"` | `node viz/server.cjs --project <dir> [--port 0]` ; `node viz/server.cjs status --project <dir> [--wait <s>]` (affiche l'URL si le pid du verrou est vivant, et nettoie un verrou périmé) ; `node viz/server.cjs stop --project <dir>` |
+| `viz-web` | `npm ci` | `npx eslint viz/public/js` | — | `node --test "tests/viz-web/*.test.mjs"` | servi par `viz-server` |
 | `skills` | — | — | — | `claude plugin validate .` | `/gepet-squad-viz` puis `/gepet-squad-viz stop` |
 
 Vérifications du plugin, à lancer en plus sur chaque PR : `claude plugin validate .` et `bash -n scripts/bootstrap.sh`, plus le test du garde-fou décrit dans `CLAUDE.md`.
 
 > Ce sont ces commandes exactes qu'utilisent le développeur et le testeur.
+> Les globs restent entre guillemets : `node --test` les développe lui-même. Avec Node 22, un chemin de dossier nu (`node --test tests/hooks/`) est résolu comme un module, et la commande échoue.
 
 Le `package.json` racine est `"private": true`. Il ne contient que des `devDependencies` (`eslint`, `@eslint/js`, `globals`) et les scripts `test` et `lint`. Le plugin ne l'exécute jamais chez l'utilisateur.
 
@@ -108,7 +109,12 @@ Détail dans l'[ADR 0003](adr/0003-journal-evenements-et-etat-fusionne.md).
   - On ajoute une ligne par événement, avec `fs.appendFileSync` : une écriture atomique pour les lignes de moins de 4 Ko.
   - Rotation au-delà de 5 Mo : `events.jsonl` devient `events.1.jsonl`, et on n'en garde qu'un seul ancien fichier.
 - **Schéma d'événement v1**, dans `hooks/lib/schema.cjs` :
-  `{ v: 1, ts, src: "hook", type, sessionId?, toolUseId?, agentId?, agentType?, mode?, issue?, pr?, status?, verdict?, label?, ref? }`.
+  `{ v: 1, ts, src: "hook", type, sessionId?, toolUseId?, agentId?, agentType?, mode?, issue?, pr?, attempt?, status?, verdict?, block?, source?, label?, ref? }`.
+  - `attempt` : la valeur de `TENTATIVE:` extraite du prompt de mission (`agent.requested`).
+  - `block` : l'en-tête du bloc de rapport, par exemple `RAPPORT_VERIFICATION` (`agent.reported`, ou `agent.finished` en repli).
+  - `source` : uniquement sur `agent.finished`. Vaut `tool` (`PostToolUse` sur `Agent`, `status: "completed"`) ou `stop` (`SubagentStop`).
+  - `toolUseId` désigne **uniquement** l'appel de l'outil `Agent` (`agent.requested`, `agent.launched`, `agent.finished` de source `tool`). `agent.reported` n'en porte pas : il est émis par l'appel `SubagentHandback` dans le subagent, et il est corrélé par `agentId`.
+
   Les types possibles :
   - `agent.requested` : `PreToolUse` sur `Agent` ;
   - `agent.launched` : `PostToolUse` sur `Agent`, `async_launched` ;

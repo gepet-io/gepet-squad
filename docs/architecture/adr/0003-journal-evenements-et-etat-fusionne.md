@@ -16,7 +16,12 @@ Les agents tournent dans des worktrees (`isolation: "worktree"`), et donc dans d
 - Rotation à 5 Mo vers `events.1.jsonl`, un seul fichier conservé. Le serveur relit `events.1.jsonl` puis `events.jsonl` au démarrage.
 
 **Schéma d'événement v1** (`hooks/lib/schema.cjs`, lu par `viz-server`) :
-`{ v: 1, ts, src: "hook", type, sessionId?, toolUseId?, agentId?, agentType?, mode?, issue?, pr?, status?, verdict?, label?, ref? }`.
+`{ v: 1, ts, src: "hook", type, sessionId?, toolUseId?, agentId?, agentType?, mode?, issue?, pr?, attempt?, status?, verdict?, block?, source?, label?, ref? }`.
+
+- `attempt` : la valeur de `TENTATIVE:` extraite du prompt (`agent.requested`).
+- `block` : l'en-tête du bloc de rapport (`RAPPORT_DEV`, `RAPPORT_VERIFICATION`…), sur `agent.reported`, ou sur `agent.finished` en repli.
+- `source` : uniquement sur `agent.finished`. Vaut `tool` (`PostToolUse` sur `Agent`, `completed`) ou `stop` (`SubagentStop`).
+- `toolUseId` désigne uniquement l'appel de l'outil `Agent`. `agent.reported` n'en porte pas : il provient de l'appel `SubagentHandback` dans le subagent, et il est corrélé par `agentId`.
 
 Les types possibles :
 - `agent.requested`, `agent.launched`, `agent.started`, `agent.reported`, `agent.finished` (voir l'ADR 0004) ;
