@@ -42,7 +42,7 @@ describe("liste des types v1", () => {
   test("les champs autorisés couvrent ceux de l'ARCHITECTURE § 6 et ceux de l'ADR 0004", () => {
     for (const name of [
       "v", "ts", "src", "type", "sessionId", "toolUseId", "agentId", "agentType", "mode",
-      "issue", "pr", "status", "verdict", "label", "ref", "block", "source", "attempt",
+      "issue", "pr", "status", "verdict", "label", "ref", "block", "source", "attempt", "retry",
     ]) {
       assert.ok(ALLOWED_FIELDS.includes(name), `champ manquant : ${name}`);
     }
@@ -68,6 +68,21 @@ describe("validate : événements conformes", () => {
       label: "status:in-review", ref: "feature/2-x", block: "RAPPORT_TESTS", source: "stop",
     });
     assert.equal(validate(full).valid, true);
+  });
+
+  test("accepte retry entier >= 1 sur feature.retry, sans confondre avec attempt", () => {
+    for (const retry of [1, 2, 3, 10]) {
+      assert.deepEqual(validate(event("feature.retry", { issue: 3, retry })), { valid: true, errors: [] });
+    }
+    assert.equal(validate(event("feature.retry", { issue: 3, retry: 2, attempt: 1 })).valid, true);
+  });
+
+  test("ref est une chaîne pour chaque usage (branche, titre de milestone, numéro de milestone)", () => {
+    assert.equal(validate(event("pr.opened", { issue: 3, ref: "feature/3-x" })).valid, true);
+    assert.equal(validate(event("release.opened", { ref: "release/m1-socle" })).valid, true);
+    assert.equal(validate(event("issue.created", { ref: "M1 — Socle" })).valid, true);
+    assert.equal(validate(event("milestone.changed", { ref: "3", status: "closed" })).valid, true);
+    assert.equal(validate(event("milestone.changed", { ref: 3 })).valid, false);
   });
 
   test("traite un champ undefined comme absent", () => {
@@ -117,6 +132,14 @@ describe("validate : rejets", () => {
     assert.equal(validate(event("agent.started", { agentId: "" })).valid, false);
     assert.equal(validate(event("agent.started", { agentId: null })).valid, false);
     assert.equal(validate(event("agent.finished", { source: "autre" })).valid, false);
+  });
+
+  test("rejette retry s'il vaut 0, s'il est négatif ou s'il n'est pas un entier", () => {
+    for (const retry of [0, -1, 1.5, "2", null, NaN, Infinity, true]) {
+      const r = validate(event("feature.retry", { issue: 3, retry }));
+      assert.equal(r.valid, false, String(retry));
+      assert.match(r.errors.join("\n"), /retry doit être un entier supérieur ou égal à 1/);
+    }
   });
 
   test("rejette tout ce qui n'est pas un objet, sans exception", () => {

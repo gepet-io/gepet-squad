@@ -32,10 +32,10 @@ function ev(type, fields) {
 describe("fixtures : événements attendus pour chaque commande", () => {
   const cases = [
     ["issue-edit-status", [ev("feature.status", { issue: 12, status: "in-progress" })]],
-    ["issue-edit-retry", [ev("feature.retry", { issue: 12, attempt: 2 })]],
+    ["issue-edit-retry", [ev("feature.retry", { issue: 12, retry: 2 })]],
     [
       "issue-edit-labels-csv",
-      [ev("feature.status", { issue: 12, status: "changes-requested" }), ev("feature.retry", { issue: 12, attempt: 2 })],
+      [ev("feature.status", { issue: 12, status: "changes-requested" }), ev("feature.retry", { issue: 12, retry: 2 })],
     ],
     // Seul `--add-label` compte : retirer des labels (status:in-test, retry:*) ne produit rien.
     ["issue-edit-done-cleanup", [ev("feature.status", { issue: 12, status: "done" })]],
@@ -81,11 +81,12 @@ describe("feature.status et feature.retry", () => {
     ["-R et numéro #5 entre guillemets", 'gh issue edit "#5" -R o/r --add-label status:in-review', [ev("feature.status", { issue: 5, status: "in-review" })]],
     ["--add-label=valeur", "gh issue edit 5 --add-label=status:in-test", [ev("feature.status", { issue: 5, status: "in-test" })]],
     ["URL de l'issue", "gh issue edit https://github.com/o/r/issues/5 --add-label status:backlog", [ev("feature.status", { issue: 5, status: "backlog" })]],
-    ["option répétée", "gh issue edit 5 --add-label status:done --add-label retry:3", [ev("feature.status", { issue: 5, status: "done" }), ev("feature.retry", { issue: 5, attempt: 3 })]],
-    ["liste entre guillemets avec espaces", 'gh issue edit 5 --add-label "retry:1, status:changes-requested"', [ev("feature.retry", { issue: 5, attempt: 1 }), ev("feature.status", { issue: 5, status: "changes-requested" })]],
+    ["option répétée", "gh issue edit 5 --add-label status:done --add-label retry:3", [ev("feature.status", { issue: 5, status: "done" }), ev("feature.retry", { issue: 5, retry: 3 })]],
+    ["liste entre guillemets avec espaces", 'gh issue edit 5 --add-label "retry:1, status:changes-requested"', [ev("feature.retry", { issue: 5, retry: 1 }), ev("feature.status", { issue: 5, status: "changes-requested" })]],
     ["statut inconnu", "gh issue edit 5 --add-label status:bizarre", []],
     ["label sans rapport", "gh issue edit 5 --add-label type:feature,scope:hooks", []],
     ["retry non numérique", "gh issue edit 5 --add-label retry:x", []],
+    ["retry:0 n'est pas un échec (le schéma exige retry >= 1)", "gh issue edit 5 --add-label retry:0", []],
     ["numéro d'issue absent", "gh issue edit --add-label status:ready", []],
     ["numéro d'issue invalide", "gh issue edit abc --add-label status:ready", []],
     ["label retiré seulement", "gh issue edit 5 --remove-label status:ready", []],

@@ -10,15 +10,14 @@
 //
 // Correspondance avec le schéma (hooks/lib/schema.cjs) :
 //   gh issue edit N --add-label status:X     -> feature.status     { issue, status: X }
-//   gh issue edit N --add-label retry:K      -> feature.retry      { issue, attempt: K }
+//   gh issue edit N --add-label retry:K      -> feature.retry      { issue, retry: K }
 //   gh pr create --head feature/N-slug       -> pr.opened          { issue: N, ref: <branche> }
 //   gh pr create --head release/...          -> release.opened     { ref: <branche> }
 //   gh pr merge N                            -> pr.merged          { pr: N }
 //   gh issue close N                         -> issue.closed       { issue: N }
 //   gh issue create [--milestone M]          -> issue.created      { ref: M }
 //   gh api -X PATCH repos/o/r/milestones/N   -> milestone.changed  { ref: "N", status: <state> }
-// Le schéma v1 n'a pas de champ `retry` : le nombre d'échecs voyage dans `attempt`. Le numéro de la PR ou de
-// l'issue créée n'est connu que dans la sortie de la commande, que le hook PostToolUse n'analyse pas.
+// Le numéro de la PR ou de l'issue créée n'est connu que dans la sortie de la commande, que le hook PostToolUse n'analyse pas.
 
 const { SCHEMA_VERSION, MAX_ID_LENGTH, isPlainObject, validate } = require("./schema.cjs");
 
@@ -264,8 +263,8 @@ function issueEdit(args) {
       continue;
     }
     const retry = /^retry:(\d+)$/.exec(label);
-    const attempt = retry ? Number.parseInt(retry[1], 10) : NaN;
-    if (Number.isSafeInteger(attempt)) events.push({ type: "feature.retry", issue, attempt });
+    const count = retry ? Number.parseInt(retry[1], 10) : NaN;
+    if (Number.isSafeInteger(count) && count >= 1) events.push({ type: "feature.retry", issue, retry: count });
   }
   return events;
 }

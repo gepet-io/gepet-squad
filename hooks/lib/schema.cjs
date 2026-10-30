@@ -29,6 +29,14 @@ const FINISH_SOURCES = Object.freeze(["tool", "stop"]);
 
 // Champs autorisés et leur type. `block`, `source` et `attempt` complètent la liste de l'ARCHITECTURE § 6
 // avec les champs que l'ADR 0004 (`block`, `source`) et la minimisation (`TENTATIVE`) imposent.
+//
+// `attempt` : TENTATIVE d'un agent (agent.requested). `retry` : nombre d'échecs d'une feature, entier >= 1
+// (feature.retry, label `retry:K`). Les deux ne se confondent pas.
+//
+// `ref` est toujours une chaîne, mais son sens dépend du type d'événement :
+//   - pr.opened, release.opened : nom de la branche ;
+//   - issue.created : titre du milestone, s'il est donné ;
+//   - milestone.changed : numéro du milestone, en chaîne (`"3"`).
 const FIELD_TYPES = Object.freeze({
   v: "version",
   ts: "date",
@@ -42,6 +50,7 @@ const FIELD_TYPES = Object.freeze({
   issue: "integer",
   pr: "integer",
   attempt: "integer",
+  retry: "positive",
   status: "string",
   verdict: "string",
   label: "string",
@@ -93,6 +102,9 @@ function checkField(name, value, errors) {
       break;
     case "integer":
       if (!Number.isInteger(value) || value < 0) errors.push(`${name} doit être un entier positif ou nul`);
+      break;
+    case "positive":
+      if (!Number.isInteger(value) || value < 1) errors.push(`${name} doit être un entier supérieur ou égal à 1`);
       break;
     case "string":
       if (typeof value !== "string" || value === "") errors.push(`${name} doit être une chaîne non vide`);

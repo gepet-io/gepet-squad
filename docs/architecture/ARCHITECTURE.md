@@ -122,13 +122,13 @@ Détail dans l'[ADR 0003](adr/0003-journal-evenements-et-etat-fusionne.md).
   - `agent.reported` : `SubagentHandback` ;
   - `agent.finished` : `SubagentStop`, ou `PostToolUse` sur `Agent` avec `completed` ;
   - `feature.status` : `gh issue edit --add-label status:*` ;
-  - `feature.retry` : `--add-label retry:*` (le nombre d'échecs voyage dans `attempt`) ;
-  - `pr.opened` : `gh pr create --head feature/<n>-…` (`issue` déduit de la branche, `ref` = branche) ;
+  - `feature.retry` : `--add-label retry:*` ;
+  - `pr.opened` ;
   - `pr.merged` ;
   - `issue.closed` ;
-  - `issue.created` : `gh issue create` (`ref` = titre du milestone, s'il est donné) ;
-  - `milestone.changed` : `gh api -X PATCH repos/…/milestones/<n>` (`ref` = numéro du milestone, `status` = `open` ou `closed`) ;
-  - `release.opened` : `gh pr create --head release/…` (`ref` = branche).
+  - `issue.created` ;
+  - `milestone.changed` ;
+  - `release.opened`.
 - **Minimisation** : on n'enregistre **ni le prompt ni le rapport complet**. Seuls des champs extraits par expression régulière sont gardés : `MODE`, `ISSUE`, `PR` et `TENTATIVE` du prompt, l'en-tête du bloc et la ligne `Verdict:` ou `Statut:` du rapport.
 - **État fusionné** : servi par `/state` et calculé par un réducteur pur.
   `{ repo, updatedAt, milestones[], features[{ number, title, milestone, status, retry, pr, station }], agents[{ id, type, mode, issue, pr, phase: requested|running|reported|finished|unknown, since }], releases[], warnings[{ code, message, at }] }`.
