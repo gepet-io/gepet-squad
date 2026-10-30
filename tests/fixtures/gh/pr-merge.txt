@@ -1,0 +1,1 @@
+gh pr merge 34 --repo o/r --squash --delete-branch

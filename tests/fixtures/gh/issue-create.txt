@@ -1,0 +1,2 @@
+gh issue create --repo o/r --title "[api] Ajouter une tâche" --body-file /tmp/issue-body.md \
+  --milestone "M1 — Socle" --label "type:feature,scope:api,status:ready"

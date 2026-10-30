@@ -1,0 +1,5 @@
+gh pr comment 34 --repo o/r --body-file - <<'EOF'
+🔍 Vérification — tentative 1 — PASS
+gh issue close 99 --repo o/r
+gh pr merge 98
+EOF

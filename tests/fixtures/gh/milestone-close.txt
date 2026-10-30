@@ -1,0 +1,1 @@
+gh api -X PATCH repos/o/r/milestones/3 -f state=closed

@@ -1,0 +1,6 @@
+gh auth status
+gh repo view --json nameWithOwner
+gh pr view 34 --repo o/r --json headRefOid
+gh issue list --repo o/r --milestone "M1 — Socle" --state all --json number,title,labels,state
+gh pr list --repo o/r --base develop --json number,headRefName,title,mergeable
+gh api repos/o/r/milestones?state=all

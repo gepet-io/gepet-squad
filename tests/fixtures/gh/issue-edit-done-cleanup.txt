@@ -1,0 +1,1 @@
+gh issue edit 12 --repo o/r --remove-label status:in-test --remove-label retry:1 --remove-label retry:2 --add-label status:done
