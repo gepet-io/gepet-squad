@@ -58,7 +58,7 @@ Dans Claude Code :
 /plugin install claude-gepet-squad@claude-gepet-squad
 ```
 
-Sur une autre machine, utilisez le repo GitHub : `/plugin marketplace add <compte>/claude-gepet-squad`.
+Sur une autre machine, utilisez le repo GitHub : `/plugin marketplace add gepets/claude-gepet-squad`.
 
 ## Mettre à jour après une modification
 
