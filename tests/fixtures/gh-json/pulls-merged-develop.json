@@ -1,0 +1,12 @@
+[
+  {
+    "number": 30,
+    "title": "feat(hooks): journal",
+    "state": "MERGED",
+    "headRefName": "feature/3-journal",
+    "baseRefName": "develop",
+    "url": "https://github.com/o/r/pull/30",
+    "isDraft": false,
+    "mergedAt": "2026-10-29T10:00:00Z"
+  }
+]

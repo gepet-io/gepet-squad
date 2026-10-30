@@ -1,0 +1,22 @@
+[
+  {
+    "url": "https://api.github.com/repos/o/r/milestones/2",
+    "html_url": "https://github.com/o/r/milestone/2",
+    "number": 2,
+    "title": "M2 — Serveur temps réel",
+    "description": "Serveur local",
+    "state": "open",
+    "open_issues": 3,
+    "closed_issues": 1,
+    "due_on": null
+  },
+  {
+    "number": 1,
+    "title": "M1 — Collecte",
+    "description": "",
+    "state": "closed",
+    "open_issues": 0,
+    "closed_issues": 5,
+    "due_on": "2026-10-31T07:00:00Z"
+  }
+]

@@ -1,0 +1,22 @@
+[
+  {
+    "number": 40,
+    "title": "feat(viz-server): instantané GitHub",
+    "state": "OPEN",
+    "headRefName": "feature/12-instantane-github",
+    "baseRefName": "develop",
+    "url": "https://github.com/o/r/pull/40",
+    "isDraft": true,
+    "mergedAt": null
+  },
+  {
+    "number": 41,
+    "title": "release: M1",
+    "state": "OPEN",
+    "headRefName": "release/m1-collecte",
+    "baseRefName": "main",
+    "url": "https://github.com/o/r/pull/41",
+    "isDraft": false,
+    "mergedAt": "0001-01-01T00:00:00Z"
+  }
+]

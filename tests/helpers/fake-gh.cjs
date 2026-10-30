@@ -3,7 +3,7 @@
 // à côté de `responses.json` (les réponses de fixture) et de `calls.jsonl` (le journal des appels).
 //
 // Format de responses.json :
-//   { "routes": [ { "match": ["issue", "list"], "json": [...], "stdout": "...", "stderr": "...", "exitCode": 0 } ] }
+//   { "routes": [ { "match": ["issue", "list"], "json": [...], "stdout": "...", "stderr": "...", "exitCode": 0, "delayMs": 0 } ] }
 // Une route correspond quand ses éléments `match` sont le début des arguments reçus.
 // La première route qui correspond gagne. Sans route : message sur stderr et code 1.
 const fs = require("fs");
@@ -33,7 +33,13 @@ if (!route) {
   process.exit(1);
 }
 
-if (route.json !== undefined) process.stdout.write(JSON.stringify(route.json) + "\n");
-else if (route.stdout) process.stdout.write(route.stdout);
-if (route.stderr) process.stderr.write(route.stderr);
-process.exitCode = route.exitCode || 0;
+const respond = () => {
+  if (route.json !== undefined) process.stdout.write(JSON.stringify(route.json) + "\n");
+  else if (route.stdout) process.stdout.write(route.stdout);
+  if (route.stderr) process.stderr.write(route.stderr);
+  process.exitCode = route.exitCode || 0;
+};
+
+// `delayMs` fait attendre le faux gh avant de répondre (test de délai dépassé).
+if (route.delayMs > 0) setTimeout(respond, route.delayMs);
+else respond();
