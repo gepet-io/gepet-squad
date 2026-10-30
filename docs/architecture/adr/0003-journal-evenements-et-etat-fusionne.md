@@ -16,9 +16,19 @@ Les agents tournent dans des worktrees (`isolation: "worktree"`), et donc dans d
 - Rotation à 5 Mo vers `events.1.jsonl`, un seul fichier conservé. Le serveur relit `events.1.jsonl` puis `events.jsonl` au démarrage.
 
 **Schéma d'événement v1** (`hooks/lib/schema.cjs`, lu par `viz-server`) :
-`{ v: 1, ts, src: "hook", type, sessionId?, toolUseId?, agentId?, agentType?, mode?, issue?, pr?, attempt?, status?, verdict?, block?, source?, label?, ref? }`.
+`{ v: 1, ts, src: "hook", type, sessionId?, toolUseId?, agentId?, agentType?, mode?, issue?, pr?, attempt?, retry?, status?, verdict?, block?, source?, label?, ref? }`.
 
-- `attempt` : la valeur de `TENTATIVE:` extraite du prompt (`agent.requested`).
+La liste des champs obligatoires et optionnels de chaque type est donnée dans `ARCHITECTURE.md`, § 6 (« Champs par type »).
+
+- `attempt` : la valeur de `TENTATIVE:` extraite du prompt (`agent.requested`). Ne pas confondre avec `retry`.
+- `retry` : un entier ≥ 1, le K du label `retry:K` de l'issue. Porté uniquement par `feature.retry`. Ajouté pendant la PR de `gh-command.cjs` : c'est un champ optionnel et rétrocompatible, donc sans changement de version de schéma.
+- `ref` : toujours une chaîne, dont le sens dépend du type :
+  - pour `pr.opened` et `release.opened`, la branche de tête ;
+  - pour `issue.created`, le titre du milestone ;
+  - pour `milestone.changed`, le numéro du milestone (`"3"`).
+
+  Le numéro d'une PR ou d'une issue créée n'est connu qu'en sortie de commande, alors que le hook ne voit que la commande : `ref` porte donc l'identifiant disponible à ce moment-là. Le réducteur l'interprète selon le type, et le recalage GitHub fournit ensuite le numéro réel.
+- `label` : réservé, aucun type ne le produit en v1.
 - `block` : l'en-tête du bloc de rapport (`RAPPORT_DEV`, `RAPPORT_VERIFICATION`…), sur `agent.reported`, ou sur `agent.finished` en repli.
 - `source` : uniquement sur `agent.finished`. Vaut `tool` (`PostToolUse` sur `Agent`, `completed`) ou `stop` (`SubagentStop`).
 - `toolUseId` désigne uniquement l'appel de l'outil `Agent`. `agent.reported` n'en porte pas : il provient de l'appel `SubagentHandback` dans le subagent, et il est corrélé par `agentId`.
