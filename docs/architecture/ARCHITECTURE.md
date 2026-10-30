@@ -109,8 +109,10 @@ Détail dans l'[ADR 0003](adr/0003-journal-evenements-et-etat-fusionne.md).
   - On ajoute une ligne par événement, avec `fs.appendFileSync` : une écriture atomique pour les lignes de moins de 4 Ko.
   - Rotation au-delà de 5 Mo : `events.jsonl` devient `events.1.jsonl`, et on n'en garde qu'un seul ancien fichier.
 - **Schéma d'événement v1**, dans `hooks/lib/schema.cjs` :
-  `{ v: 1, ts, src: "hook", type, sessionId?, toolUseId?, agentId?, agentType?, mode?, issue?, pr?, attempt?, status?, verdict?, block?, source?, label?, ref? }`.
-  - `attempt` : la valeur de `TENTATIVE:` extraite du prompt de mission (`agent.requested`).
+  `{ v: 1, ts, src: "hook", type, sessionId?, toolUseId?, agentId?, agentType?, mode?, issue?, pr?, attempt?, retry?, status?, verdict?, block?, source?, label?, ref? }`.
+  - `attempt` : la valeur de `TENTATIVE:` extraite du prompt de mission (`agent.requested`). Ne pas confondre avec `retry`.
+  - `retry` : un entier ≥ 1, le K du label `retry:K` posé sur l'issue. Porté uniquement par `feature.retry`.
+  - `ref` : toujours une **chaîne**, dont le sens dépend du type (tableau ci-dessous). Il sert à transporter l'identifiant disponible au moment de la commande, alors que le numéro d'une PR ou d'une issue créée n'est connu qu'en sortie de commande.
   - `block` : l'en-tête du bloc de rapport, par exemple `RAPPORT_VERIFICATION` (`agent.reported`, ou `agent.finished` en repli).
   - `source` : uniquement sur `agent.finished`. Vaut `tool` (`PostToolUse` sur `Agent`, `status: "completed"`) ou `stop` (`SubagentStop`).
   - `toolUseId` désigne **uniquement** l'appel de l'outil `Agent` (`agent.requested`, `agent.launched`, `agent.finished` de source `tool`). `agent.reported` n'en porte pas : il est émis par l'appel `SubagentHandback` dans le subagent, et il est corrélé par `agentId`.
@@ -129,6 +131,26 @@ Détail dans l'[ADR 0003](adr/0003-journal-evenements-et-etat-fusionne.md).
   - `issue.created` ;
   - `milestone.changed` ;
   - `release.opened`.
+
+  **Champs par type.** Les champs communs `v`, `ts`, `src`, `type` et `sessionId?` sont toujours présents, et `validate()` refuse tout champ hors de cette liste. Dans le tableau, ✔ indique un champ obligatoire et ? un champ optionnel.
+
+  | Type | Source | Champs propres |
+  |---|---|---|
+  | `agent.requested` | `PreToolUse` sur `Agent` | `toolUseId` ✔, `agentType` ✔, `mode` ?, `issue` ?, `pr` ?, `attempt` ? |
+  | `agent.launched` | `PostToolUse` sur `Agent` (`async_launched`) | `toolUseId` ✔, `agentId` ✔, `agentType` ? |
+  | `agent.started` | `SubagentStart` | `agentId` ✔, `agentType` ✔ |
+  | `agent.reported` | `PreToolUse` sur `SubagentHandback` | `agentId` ✔, `agentType` ?, `block` ✔, `verdict` ? (`PASS`, `FAIL`, `LIVRÉ`, `BLOQUÉ`) |
+  | `agent.finished` | `SubagentStop`, ou `PostToolUse` sur `Agent` (`completed`) | `agentId` ✔, `source` ✔ (`stop` ou `tool`), `toolUseId` ? (si `source: "tool"`), `agentType` ?, `block` ?, `verdict` ? |
+  | `feature.status` | `gh issue edit … --add-label status:X` | `issue` ✔, `status` ✔ (X, sans le préfixe `status:`) |
+  | `feature.retry` | `gh issue edit … --add-label retry:K` | `issue` ✔, `retry` ✔ (K) |
+  | `issue.created` | `gh issue create … --milestone M` | `ref` ✔ = **titre du milestone** M, `status` ? (si un label `status:*` est posé à la création) |
+  | `issue.closed` | `gh issue close N` | `issue` ✔ |
+  | `pr.opened` | `gh pr create … --head feature/<n>-…` | `ref` ✔ = **branche** de tête, `issue` ? (déduit de `feature/<n>-…`) |
+  | `release.opened` | `gh pr create … --head release/m<k>-…` | `ref` ✔ = **branche** de release |
+  | `pr.merged` | `gh pr merge N` | `pr` ✔ |
+  | `milestone.changed` | `gh api -X PATCH …/milestones/N -f state=S` | `ref` ✔ = **numéro du milestone, en chaîne** (`"3"`), `status` ? (S : `open` ou `closed`) |
+
+  `label` reste réservé en v1 : aucun type ne le produit. Le réducteur interprète `ref` et `status` **selon le type**, jamais de manière générique.
 - **Minimisation** : on n'enregistre **ni le prompt ni le rapport complet**. Seuls des champs extraits par expression régulière sont gardés : `MODE`, `ISSUE`, `PR` et `TENTATIVE` du prompt, l'en-tête du bloc et la ligne `Verdict:` ou `Statut:` du rapport.
 - **État fusionné** : servi par `/state` et calculé par un réducteur pur.
   `{ repo, updatedAt, milestones[], features[{ number, title, milestone, status, retry, pr, station }], agents[{ id, type, mode, issue, pr, phase: requested|running|reported|finished|unknown, since }], releases[], warnings[{ code, message, at }] }`.
