@@ -63,9 +63,9 @@ La structure du plugin (`hooks/`, `skills/`, `agents/`, `scripts/`) est imposée
 |---|---|---|---|---|
 | `hooks` | `hooks/events.cjs`, `hooks/lib/`, entrées dans `hooks/hooks.json` | Collecteur : transforme les payloads de hooks en événements normalisés et les ajoute au journal. N'est actif que dans un repo qui contient `.gepet-squad.json`. Ne bloque jamais rien. | Le fichier `events.jsonl` (schéma v1, voir § 6) | Le stdin JSON des hooks Claude Code, `git rev-parse --git-common-dir` |
 | `viz-server` | `viz/server.cjs`, `viz/lib/` | Serveur HTTP local en lecture seule. Il suit le journal, prend l'instantané GitHub, fusionne les deux dans un état et le pousse en SSE. | `GET /` (fichiers statiques de `viz/public`), `GET /state` (JSON), `GET /events` (SSE), `GET /health` | `events.jsonl`, CLI `gh` |
-| `viz-web` | `viz/public/` (`index.html`, `js/`, `vendor/three/`) | Front 3D. Modules purs (`state.js`, `layout.js`) séparés du rendu (`scene.js`, `labels.js`, `main.js`). | — | `GET /state`, `EventSource('/events')` |
-| `skills` | `skills/gepet-squad-viz/SKILL.md`, plus la doc README et CHANGELOG | Commande utilisateur : démarre le serveur en arrière-plan, affiche l'URL, gère `stop` et l'unicité (fichier verrou). | `/gepet-squad-viz [stop]` | `viz/server.cjs` |
-| `repo` | racine : `package.json`, `eslint.config.mjs`, `.github/workflows/ci.yml`, `.gitattributes`, `tests/helpers/`, `scripts/vendor-three.sh` | Outillage transverse : lint, suite de tests, CI, vendoring de Three.js | `npm test`, `npm run lint` | — |
+| `viz-web` | `viz/public/` (`index.html`, `js/`, `css/`, `vendor/three/`), plus `scripts/vendor-three.sh` | Front 3D. Modules purs (`state.js`, `layout.js`) séparés du rendu (`scene.js`, `labels.js`, `main.js`). | — | `GET /state`, `EventSource('/events')` |
+| `skills` | `skills/gepet-squad-viz/SKILL.md`, plus la doc README et CHANGELOG | Commande utilisateur. Démarre le serveur en arrière-plan et affiche l'URL. Délègue l'unicité et l'arrêt aux sous-commandes `status` et `stop` de `viz/server.cjs` : le skill ne manipule aucun pid. | `/gepet-squad-viz [stop]` | CLI de `viz/server.cjs` (`[start]`, `status`, `stop`) |
+| `repo` | racine : `package.json`, `eslint.config.mjs`, `.github/workflows/ci.yml`, `.gitattributes`, `tests/helpers/` | Outillage transverse : lint, suite de tests, CI | `npm test`, `npm run lint` | — |
 
 Dépendances entre sous-projets :
 - tous les scopes dépendent de l'outillage du scope `repo` ;
@@ -90,7 +90,7 @@ Le schéma d'événement v1 vit dans `hooks/lib/schema.cjs` : il appartient au s
 |---|---|---|---|---|---|
 | tous (racine) | `npm ci` (dev uniquement : ESLint) | `npm run lint` | — (aucun build) | `npm test` (= `node --test`) | — |
 | `hooks` | `npm ci` | `npx eslint hooks` | — | `node --test tests/hooks/` | déclenché par Claude Code via `hooks/hooks.json` |
-| `viz-server` | `npm ci` | `npx eslint viz/server.cjs viz/lib` | — | `node --test tests/viz-server/` | `node viz/server.cjs --project <dossier du projet squad> [--port 0]` |
+| `viz-server` | `npm ci` | `npx eslint viz/server.cjs viz/lib` | — | `node --test tests/viz-server/` | `node viz/server.cjs --project <dir> [--port 0]` ; `node viz/server.cjs status --project <dir> [--wait <s>]` (affiche l'URL si le pid du verrou est vivant, et nettoie un verrou périmé) ; `node viz/server.cjs stop --project <dir>` |
 | `viz-web` | `npm ci` | `npx eslint viz/public/js` | — | `node --test tests/viz-web/` | servi par `viz-server` |
 | `skills` | — | — | — | `claude plugin validate .` | `/gepet-squad-viz` puis `/gepet-squad-viz stop` |
 
@@ -125,7 +125,8 @@ Détail dans l'[ADR 0003](adr/0003-journal-evenements-et-etat-fusionne.md).
   - `release.opened`.
 - **Minimisation** : on n'enregistre **ni le prompt ni le rapport complet**. Seuls des champs extraits par expression régulière sont gardés : `MODE`, `ISSUE`, `PR` et `TENTATIVE` du prompt, l'en-tête du bloc et la ligne `Verdict:` ou `Statut:` du rapport.
 - **État fusionné** : servi par `/state` et calculé par un réducteur pur.
-  `{ repo, updatedAt, milestones[], features[{ number, title, milestone, status, retry, pr, station }], agents[{ id, type, mode, issue, pr, phase: requested|running|reported|finished|unknown, since }], releases[] }`.
+  `{ repo, updatedAt, milestones[], features[{ number, title, milestone, status, retry, pr, station }], agents[{ id, type, mode, issue, pr, phase: requested|running|reported|finished|unknown, since }], releases[], warnings[{ code, message, at }] }`.
+  `warnings` est vide quand tout va bien. Il porte par exemple `GH_AUTH` quand `gh` échoue.
   En cas de conflit sur le statut d'une feature, **GitHub fait foi** : le journal ne sert qu'à animer l'intervalle entre deux recalages.
 - **Correspondance avec les stations** :
   - Cadrage : architecte en `CADRAGE_*` ;
@@ -207,7 +208,7 @@ Le niveau retenu est celui d'un **outil local mono-utilisateur, en lecture seule
   - si `gh` échoue, le serveur garde le dernier instantané et pousse un événement SSE `warning` ;
   - côté front, si WebGL est indisponible, on affiche une liste texte des statuts.
 - **Fixtures** : les payloads de hooks réels sont capturés une fois avec `claude --debug-file`, puis anonymisés dans `tests/fixtures/hooks/`. Chaque type d'événement doit avoir au moins une fixture réelle.
-- **Commits** : Conventional Commits en français (`feat(viz-server): …`), comme l'historique actuel. Bump semver dans `.claude-plugin/plugin.json` et une entrée dans `CHANGELOG.md` par changement de comportement. La version cible de la brique est **0.2.0**.
+- **Commits** : Conventional Commits en français (`feat(viz-server): …`), comme l'historique actuel. Bump semver dans `.claude-plugin/plugin.json` et une entrée dans `CHANGELOG.md` par changement de comportement. Chaque milestone donne lieu à un bump mineur, porté par sa dernière feature : **0.2.0** (M1, collecte), **0.3.0** (M2, serveur), **0.4.0** (M3, vue 3D et commande). Aucune autre feature ne touche `plugin.json` ni `CHANGELOG.md`.
 - **Stratégie de tests** : voir l'[ADR 0006](adr/0006-strategie-de-tests.md).
 
 ## 10. Hébergement & CI

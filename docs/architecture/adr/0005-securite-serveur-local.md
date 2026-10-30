@@ -9,7 +9,7 @@ Statut : Acceptée — Date : 2026-10-30
 
 Le niveau retenu est celui d'un **outil local mono-utilisateur, en lecture seule, sans authentification applicative**. La protection repose sur le confinement réseau et l'origine :
 
-1. **Écoute** sur `127.0.0.1` uniquement. Le port vaut `0` (choix automatique) par défaut, ou la valeur de `--port`. Le port et le pid sont écrits dans un fichier verrou `<git-common-dir>/gepet-squad/viz.lock`, qui garantit l'unicité et permet `stop`.
+1. **Écoute** sur `127.0.0.1` uniquement. Le port vaut `0` (choix automatique) par défaut, ou la valeur de `--port`. Le port et le pid sont écrits dans un fichier verrou `<git-common-dir>/gepet-squad/viz.lock`, qui garantit l'unicité. Les sous-commandes `node viz/server.cjs status` et `stop` lisent ce verrou : `status` vérifie si le pid est vivant et nettoie un verrou périmé, `stop` arrête le processus par `process.kill`. Le skill ne manipule jamais de pid lui-même, ce qui garantit le même comportement sous Windows, macOS et Linux.
 2. **En-tête `Host`** : il doit valoir `127.0.0.1:<port>` ou `localhost:<port>`, sinon le serveur répond **421**. C'est la protection contre le DNS rebinding.
 3. **Méthodes** : seules GET et HEAD sont acceptées, les autres reçoivent **405**. Aucun en-tête `Access-Control-Allow-*` n'est envoyé.
 4. **Fichiers statiques** : servis depuis `viz/public/` uniquement. Le chemin est résolu, puis on vérifie qu'il reste sous cette racine : sinon **403**. Les types MIME proviennent d'une liste blanche (`.html`, `.js`, `.css`, `.json`, `.svg`, `.png`), tout le reste reçoit **404**.
