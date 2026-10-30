@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "claude-gepet-squad",
+  "description": "Marketplace personnelle du plugin claude-gepet-squad.",
+  "owner": {
+    "name": "gohugow",
+    "email": "hailleres@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "claude-gepet-squad",
+      "description": "Squad IT d'agents qui livre un projet complet à partir d'un simple prompt.",
+      "source": "./",
+      "category": "development"
+    }
+  ]
+}
