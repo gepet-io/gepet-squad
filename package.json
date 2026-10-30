@@ -4,7 +4,7 @@
   "private": true,
   "description": "Outillage de développement (lint, tests) du plugin claude-gepet-squad. Jamais exécuté chez l'utilisateur du plugin.",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.13"
   },
   "scripts": {
     "test": "node --test",

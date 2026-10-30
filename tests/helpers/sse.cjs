@@ -77,7 +77,14 @@ function openSse(url, { headers = {}, timeoutMs = 5000 } = {}) {
         events.push(...parser.feed(chunk));
         notify();
       });
-      res.on("close", notify);
+      // Le timeout d'inactivité ne vaut que jusqu'aux en-têtes : un flux SSE peut rester silencieux
+      // entre deux battements (15 s d'après l'ADR 0002).
+      req.setTimeout(0);
+      let closed = false;
+      res.on("close", () => {
+        closed = true;
+        notify();
+      });
 
       const waitFor = (predicate, waitMs = timeoutMs) =>
         new Promise((resolveWait, rejectWait) => {
@@ -86,6 +93,10 @@ function openSse(url, { headers = {}, timeoutMs = 5000 } = {}) {
               clearTimeout(timer);
               waiters.delete(check);
               resolveWait(events);
+            } else if (closed) {
+              clearTimeout(timer);
+              waiters.delete(check);
+              rejectWait(new Error(`SSE : flux fermé avant la condition attendue (${events.length} événement(s) reçu(s))`));
             }
           };
           const timer = setTimeout(() => {

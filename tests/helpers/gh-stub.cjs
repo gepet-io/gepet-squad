@@ -4,6 +4,9 @@ const os = require("os");
 const path = require("path");
 const { execFile } = require("child_process");
 
+// Arguments transmis à travers le shell de Windows sans échappement : on n'accepte que des caractères sûrs.
+const ARGUMENT_SIMPLE = /^[\w@%+=:,./\\-]+$/;
+
 /**
  * Construit un environnement dont le PATH commence par `dir`.
  * Fonction pure : `platform` est un paramètre pour pouvoir la tester pour Windows depuis Linux.
@@ -27,7 +30,7 @@ function buildEnv(dir, baseEnv, platform = process.platform) {
  * @returns {{ dir: string, env: (baseEnv?: object) => object, calls: () => object[], run: Function, cleanup: () => void }}
  */
 function installFakeGh(responses = { routes: [] }) {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "gepet-fakegh-")));
+  const dir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "gepet-fakegh-")));
   fs.copyFileSync(path.join(__dirname, "fake-gh.cjs"), path.join(dir, "fake-gh.cjs"));
   fs.writeFileSync(path.join(dir, "responses.json"), JSON.stringify(responses));
 
@@ -55,10 +58,16 @@ function installFakeGh(responses = { routes: [] }) {
   /**
    * Exécute `gh` via execFile avec le PATH du faux gh. Résout toujours : { code, stdout, stderr }.
    * Sous Windows, Node refuse d'exécuter un .cmd sans shell : on passe par le shell, avec des
-   * arguments simples (sans espace ni métacaractère), ce qui suffit aux tests.
+   * arguments simples : les autres sont refusés explicitement (rejet de la promesse).
    */
   const run = (args, options = {}) =>
     new Promise((resolve) => {
+      // Même contrôle sur tous les OS pour que les tests se comportent partout de la même façon.
+      for (const arg of args) {
+        if (!ARGUMENT_SIMPLE.test(arg)) {
+          throw new Error(`gh.run : argument non pris en charge (espace ou métacaractère de shell) : ${JSON.stringify(arg)}`);
+        }
+      }
       const isWin = process.platform === "win32";
       execFile(
         isWin ? "gh.cmd" : "gh",

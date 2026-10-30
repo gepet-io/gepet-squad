@@ -38,10 +38,15 @@ function git(cwd, args) {
   ).trim();
 }
 
-/** Dossier commun `.git` vu depuis `cwd`, en chemin absolu et canonique. */
+/**
+ * Dossier commun `.git` vu depuis `cwd`, en chemin absolu et canonique.
+ * Utilise realpathSync.native : sous Windows, os.tmpdir() peut être un chemin court 8.3
+ * (C:\Users\RUNNER~1\...) alors que git renvoie un chemin long depuis un worktree ; seule
+ * l'implémentation native développe les noms 8.3, sinon les deux chemins ne sont pas égaux.
+ */
 function gitCommonDir(cwd) {
   const out = git(cwd, ["rev-parse", "--git-common-dir"]);
-  return fs.realpathSync(path.resolve(cwd, out));
+  return fs.realpathSync.native(path.resolve(cwd, out));
 }
 
 /**
@@ -50,7 +55,7 @@ function gitCommonDir(cwd) {
  * @returns {{ dir: string, worktreeDir: string|null, git: (cwd: string, args: string[]) => string, cleanup: () => void }}
  */
 function createTempRepo({ withWorktree = false } = {}) {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "gepet-repo-")));
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "gepet-repo-")));
   const dir = path.join(root, "repo");
   fs.mkdirSync(dir);
   git(dir, ["init", "-b", "main"]);

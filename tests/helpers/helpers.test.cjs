@@ -68,7 +68,7 @@ describe("repo git temporaire et worktree (intégration)", () => {
       const depuisRepo = gitCommonDir(repo.dir);
       const depuisWorktree = gitCommonDir(repo.worktreeDir);
       assert.equal(depuisWorktree, depuisRepo);
-      assert.equal(depuisRepo, fs.realpathSync(path.join(repo.dir, ".git")));
+      assert.equal(depuisRepo, fs.realpathSync.native(path.join(repo.dir, ".git")));
     } finally {
       repo.cleanup();
     }
@@ -138,6 +138,17 @@ describe("faux gh (intégration)", () => {
     }
   });
 
+  test("refuse un argument avec espace ou métacaractère plutôt que de mal le transmettre", async () => {
+    const gh = installFakeGh(responses);
+    try {
+      await assert.rejects(() => gh.run(["pr", "comment", "--body", "deux mots"]), /argument non pris en charge/);
+      await assert.rejects(() => gh.run(["issue", "list", "&", "calc"]), /argument non pris en charge/);
+      assert.deepEqual(gh.calls(), []);
+    } finally {
+      gh.cleanup();
+    }
+  });
+
   test("gh est résolu depuis le PATH fourni, par un sous-processus Node (execFile 'node')", async () => {
     const gh = installFakeGh(responses);
     try {
@@ -160,6 +171,49 @@ describe("faux gh (intégration)", () => {
 });
 
 describe("client SSE (intégration)", () => {
+  async function serveur(handler) {
+    const server = http.createServer(handler);
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const fermer = async () => {
+      server.closeAllConnections();
+      await new Promise((resolve) => server.close(resolve));
+    };
+    return { url: `http://127.0.0.1:${server.address().port}/events`, fermer };
+  }
+
+  test("un flux silencieux plus longtemps que timeoutMs n'est pas coupé après les en-têtes", async () => {
+    const srv = await serveur((req, res) => {
+      res.writeHead(200, { "Content-Type": "text/event-stream" });
+      res.write(": début\n\n");
+      setTimeout(() => res.write("data: tard\n\n"), 400);
+    });
+    const sse = await openSse(srv.url, { timeoutMs: 150 });
+    try {
+      await sse.waitFor((events) => events.length >= 1, 2000);
+      assert.deepEqual(sse.events, [{ event: "message", data: "tard" }]);
+    } finally {
+      sse.close();
+      await srv.fermer();
+    }
+  });
+
+  test("waitFor est rejeté tout de suite quand le serveur ferme le flux", async () => {
+    const srv = await serveur((req, res) => {
+      res.writeHead(200, { "Content-Type": "text/event-stream" });
+      res.write("data: un\n\n");
+      setTimeout(() => res.end(), 50);
+    });
+    const sse = await openSse(srv.url);
+    try {
+      const debut = Date.now();
+      await assert.rejects(() => sse.waitFor((events) => events.length >= 2, 4000), /flux fermé/);
+      assert.ok(Date.now() - debut < 2000, "le rejet ne doit pas attendre le délai complet");
+    } finally {
+      sse.close();
+      await srv.fermer();
+    }
+  });
+
   test("reçoit les événements d'un vrai serveur http et sait attendre un événement", async () => {
     const server = http.createServer((req, res) => {
       res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" });
