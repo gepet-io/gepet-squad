@@ -1,0 +1,230 @@
+# Architecture — claude-gepet-squad : visualisation 3D temps réel (`/gepet-squad-viz`)
+
+> Statut : validée par l'utilisateur le 2026-10-30. Toute évolution passe par un nouvel ADR.
+
+## 1. Besoin
+
+Le plugin `claude-gepet-squad` reçoit une nouvelle brique : une **visualisation 3D, en temps réel et en lecture seule**, du workflow d'un projet squad.
+
+- **Utilisateur** : la personne qui pilote un projet squad depuis Claude Code, sur son poste (Windows, macOS ou Linux). Un seul utilisateur, en local.
+- **Commande** : `/gepet-squad-viz` démarre un petit serveur Node local, puis affiche l'URL à ouvrir dans le navigateur. `/gepet-squad-viz stop` l'arrête.
+- **Métaphore** : un pipeline abstrait de 7 stations, **Cadrage → Roadmap → Dev → Vérification → Test → Merge → Release**. Les features (issues) y circulent comme des objets. Les agents actifs (architecte, développeurs, vérificateur, testeur) y apparaissent comme des entités lumineuses.
+- **Sources** :
+  - les hooks du plugin écrivent un **journal d'événements local** (temps réel) ;
+  - **GitHub** fournit l'état de fond au démarrage, puis un recalage périodique (labels `status:*` et `retry:*`, milestones, PR).
+- **Volumétrie** : jusqu'à une centaine de features par projet, 3 agents en parallèle par défaut (`maxParallelDevs`), quelques dizaines d'événements par heure.
+- **Contraintes** :
+  - **aucun build et aucune dépendance npm à l'exécution** : le plugin s'installe tel quel ;
+  - Three.js est vendoré ;
+  - le serveur n'utilise que les modules standards de Node ;
+  - prérequis inchangés : Node, `gh`, `git` ;
+  - conventions du repo : français, bump de version et CHANGELOG à chaque changement de comportement.
+- **Hors périmètre (MVP)** :
+  - aucune action depuis la vue (lecture seule stricte) ;
+  - pas de vue multi-projets ;
+  - pas de rejeu historique navigable ;
+  - pas d'hébergement distant ni de partage ;
+  - pas de panneau intégré à Claude Code ;
+  - pas de version mobile.
+
+## 2. Vue d'ensemble
+
+Il y a **trois briques et un seul flux de données**, à sens unique : hooks → journal JSONL → serveur → SSE → navigateur. Le serveur fusionne le journal avec un instantané GitHub obtenu par `gh`. Personne n'écrit vers GitHub.
+
+```mermaid
+flowchart LR
+  subgraph CC["Session Claude Code (CP + agents en worktree)"]
+    H1["PreToolUse / PostToolUse<br/>matcher Agent"]
+    H2["SubagentStart / SubagentStop<br/>matcher ^claude-gepet-squad:"]
+    H3["PreToolUse SubagentHandback<br/>(dans le subagent)"]
+    H4["PostToolUse Bash<br/>gh issue edit / pr create / pr merge / issue close"]
+  end
+  H1 & H2 & H3 & H4 --> C["hooks/events.cjs<br/>(collecteur async)"]
+  C -->|append| J[("&lt;git-common-dir&gt;/gepet-squad/events.jsonl")]
+  S["viz/server.cjs<br/>(node:http, 127.0.0.1)"] -->|tail| J
+  S -->|"execFile gh (démarrage + 60 s)"| GH[("GitHub<br/>source de vérité")]
+  S -->|"GET /state · SSE /events"| B["Navigateur<br/>viz/public (Three.js vendoré)"]
+  K["skills/gepet-squad-viz<br/>/gepet-squad-viz [stop]"] -->|démarre / arrête| S
+```
+
+**Comment on capte le cycle de vie des agents** (détail dans l'[ADR 0004](adr/0004-capture-cycle-de-vie-des-agents.md)). En phase 4, le CP lance les agents en arrière-plan. Pour ces agents, `PostToolUse` sur `Agent` se déclenche au **lancement**, avec `status: "async_launched"`. Le rapport final arrive ensuite par notification, et non dans `tool_response`. La fin d'un agent est donc captée ainsi :
+
+1. par `SubagentStop`, qui est la source principale de fin d'agent : il porte `agent_id`, `agent_type` et `last_assistant_message` ;
+2. par `PreToolUse` sur `SubagentHandback`, émis dans le subagent : `tool_input.message` contient le bloc de rapport (verdict, statut) ;
+3. par les commandes `gh` que le CP lance après chaque rapport (transition `status:*`, merge, close) : elles font foi pour l'état des features ;
+4. en repli, par `PostToolUse` sur `Agent` avec `status: "completed"`, pour les agents lancés en mode synchrone ;
+5. en dernier recours, par le recalage GitHub toutes les 60 s, qui corrige toute dérive.
+
+## 3. Sous-projets
+
+La structure du plugin (`hooks/`, `skills/`, `agents/`, `scripts/`) est imposée par Claude Code : on ne crée donc pas de layout `apps/`. Les scopes ci-dessous sont à déclarer dans `.gepet-squad.json`.
+
+| Sous-projet (scope) | Dossier | Rôle | Expose | Consomme |
+|---|---|---|---|---|
+| `hooks` | `hooks/events.cjs`, `hooks/lib/`, entrées dans `hooks/hooks.json` | Collecteur : transforme les payloads de hooks en événements normalisés et les ajoute au journal. N'est actif que dans un repo qui contient `.gepet-squad.json`. Ne bloque jamais rien. | Le fichier `events.jsonl` (schéma v1, voir § 6) | Le stdin JSON des hooks Claude Code, `git rev-parse --git-common-dir` |
+| `viz-server` | `viz/server.cjs`, `viz/lib/` | Serveur HTTP local en lecture seule. Il suit le journal, prend l'instantané GitHub, fusionne les deux dans un état et le pousse en SSE. | `GET /` (fichiers statiques de `viz/public`), `GET /state` (JSON), `GET /events` (SSE), `GET /health` | `events.jsonl`, CLI `gh` |
+| `viz-web` | `viz/public/` (`index.html`, `js/`, `vendor/three/`) | Front 3D. Modules purs (`state.js`, `layout.js`) séparés du rendu (`scene.js`, `labels.js`, `main.js`). | — | `GET /state`, `EventSource('/events')` |
+| `skills` | `skills/gepet-squad-viz/SKILL.md`, plus la doc README et CHANGELOG | Commande utilisateur : démarre le serveur en arrière-plan, affiche l'URL, gère `stop` et l'unicité (fichier verrou). | `/gepet-squad-viz [stop]` | `viz/server.cjs` |
+| `repo` | racine : `package.json`, `eslint.config.mjs`, `.github/workflows/ci.yml`, `.gitattributes`, `tests/helpers/`, `scripts/vendor-three.sh` | Outillage transverse : lint, suite de tests, CI, vendoring de Three.js | `npm test`, `npm run lint` | — |
+
+Dépendances entre sous-projets :
+- tous les scopes dépendent de l'outillage du scope `repo` ;
+- `viz-server` dépend du **schéma d'événement v1** produit par `hooks` ;
+- `viz-web` dépend du **contrat `/state` et SSE** exposé par `viz-server` ;
+- `skills` dépend de la CLI de `viz/server.cjs`.
+
+Le schéma d'événement v1 vit dans `hooks/lib/schema.cjs` : il appartient au scope `hooks`, qui le produit, et `viz-server` le lit par un chemin relatif. Le contrat `/state` appartient à `viz-server` (`viz/lib/reducer.cjs`, forme décrite au § 6). Ces deux contrats sont posés par leur première feature et ne changent ensuite que par un ADR.
+
+## 4. Stack
+
+| Sous-projet | Langage / version | Framework | Données | Tests unitaires | Tests d'intégration | Lint |
+|---|---|---|---|---|---|---|
+| `hooks` | Node.js ≥ 22 (LTS), CommonJS | aucun (modules standards) | Ajout de lignes à `events.jsonl` | `node:test` + `node:assert/strict` : normalisation de chaque type de payload (fixtures réelles), parsing des commandes `gh`, filtrage hors squad | `node:test` : exécution de `hooks/events.cjs` en sous-processus, avec un stdin de fixture, dans un repo git temporaire, puis vérification du journal écrit (rotation comprise) | ESLint 10 (`@eslint/js`, `globals`), flat config |
+| `viz-server` | Node.js ≥ 22, CommonJS | aucun (`node:http`, `node:fs`, `node:child_process`) | Lecture du journal, instantané `gh` en mémoire | `node:test` : réducteur (fusion journal et instantané, priorité GitHub), mapping `status:*` → station, contrôle de l'en-tête `Host`, résolution des chemins statiques | `node:test` : serveur démarré sur un port éphémère, client SSE qui reçoit un événement ajouté au journal, `/state` avec un faux `gh` placé dans le `PATH`, refus d'un `Host` étranger et d'une traversée de chemin | ESLint 10 |
+| `viz-web` | JavaScript ES2022, modules ES natifs | Three.js **0.187.0** vendoré (MIT) et ses addons | Modèle en mémoire | `node:test` sur les modules purs `state.js` (application d'un événement SSE) et `layout.js` (positions des stations, des files et des agents), sans DOM | Smoke manuel avec le navigateur intégré (skill `run`) : chargement, réception SSE, absence d'erreur console. Pas de test WebGL automatisé au MVP ([ADR 0006](adr/0006-strategie-de-tests.md)). | ESLint 10 (`vendor/` ignoré) |
+| `skills` | Markdown (frontmatter skill) | — | — | — | `claude plugin validate .` | — |
+
+## 5. Commandes
+
+| Sous-projet | install | lint | build | test (suite complète) | démarrer |
+|---|---|---|---|---|---|
+| tous (racine) | `npm ci` (dev uniquement : ESLint) | `npm run lint` | — (aucun build) | `npm test` (= `node --test`) | — |
+| `hooks` | `npm ci` | `npx eslint hooks` | — | `node --test tests/hooks/` | déclenché par Claude Code via `hooks/hooks.json` |
+| `viz-server` | `npm ci` | `npx eslint viz/server.cjs viz/lib` | — | `node --test tests/viz-server/` | `node viz/server.cjs --project <dossier du projet squad> [--port 0]` |
+| `viz-web` | `npm ci` | `npx eslint viz/public/js` | — | `node --test tests/viz-web/` | servi par `viz-server` |
+| `skills` | — | — | — | `claude plugin validate .` | `/gepet-squad-viz` puis `/gepet-squad-viz stop` |
+
+Vérifications du plugin, à lancer en plus sur chaque PR : `claude plugin validate .` et `bash -n scripts/bootstrap.sh`, plus le test du garde-fou décrit dans `CLAUDE.md`.
+
+> Ce sont ces commandes exactes qu'utilisent le développeur et le testeur.
+
+Le `package.json` racine est `"private": true`. Il ne contient que des `devDependencies` (`eslint`, `@eslint/js`, `globals`) et les scripts `test` et `lint`. Le plugin ne l'exécute jamais chez l'utilisateur.
+
+## 6. Données
+
+Détail dans l'[ADR 0003](adr/0003-journal-evenements-et-etat-fusionne.md).
+
+- **Journal** : `<git-common-dir>/gepet-squad/events.jsonl`, résolu par `git rev-parse --git-common-dir` depuis le `cwd` du hook. Ce dossier est commun à la session principale et aux worktrees des agents. Il n'est jamais commité et n'oblige pas à modifier le `.gitignore`.
+  - On ajoute une ligne par événement, avec `fs.appendFileSync` : une écriture atomique pour les lignes de moins de 4 Ko.
+  - Rotation au-delà de 5 Mo : `events.jsonl` devient `events.1.jsonl`, et on n'en garde qu'un seul ancien fichier.
+- **Schéma d'événement v1**, dans `hooks/lib/schema.cjs` :
+  `{ v: 1, ts, src: "hook", type, sessionId?, toolUseId?, agentId?, agentType?, mode?, issue?, pr?, status?, verdict?, label?, ref? }`.
+  Les types possibles :
+  - `agent.requested` : `PreToolUse` sur `Agent` ;
+  - `agent.launched` : `PostToolUse` sur `Agent`, `async_launched` ;
+  - `agent.started` : `SubagentStart` ;
+  - `agent.reported` : `SubagentHandback` ;
+  - `agent.finished` : `SubagentStop`, ou `PostToolUse` sur `Agent` avec `completed` ;
+  - `feature.status` : `gh issue edit --add-label status:*` ;
+  - `feature.retry` : `--add-label retry:*` ;
+  - `pr.opened` ;
+  - `pr.merged` ;
+  - `issue.closed` ;
+  - `issue.created` ;
+  - `milestone.changed` ;
+  - `release.opened`.
+- **Minimisation** : on n'enregistre **ni le prompt ni le rapport complet**. Seuls des champs extraits par expression régulière sont gardés : `MODE`, `ISSUE`, `PR` et `TENTATIVE` du prompt, l'en-tête du bloc et la ligne `Verdict:` ou `Statut:` du rapport.
+- **État fusionné** : servi par `/state` et calculé par un réducteur pur.
+  `{ repo, updatedAt, milestones[], features[{ number, title, milestone, status, retry, pr, station }], agents[{ id, type, mode, issue, pr, phase: requested|running|reported|finished|unknown, since }], releases[] }`.
+  En cas de conflit sur le statut d'une feature, **GitHub fait foi** : le journal ne sert qu'à animer l'intervalle entre deux recalages.
+- **Correspondance avec les stations** :
+  - Cadrage : architecte en `CADRAGE_*` ;
+  - Roadmap : architecte en `REVUE_ROADMAP`, et les issues `backlog` ou `ready` en file d'attente ;
+  - Dev : `in-progress`, ou `changes-requested` avec un badge retry ;
+  - Vérification : `in-review` ;
+  - Test : `in-test` ;
+  - Merge : `done` ;
+  - Release : milestone fermé ou PR `release/*` ouverte ;
+  - `blocked` : zone « escalade » rouge, accolée à la station où la feature était.
+- **Données personnelles** : uniquement des logins GitHub et des titres d'issues, déjà présents sur le repo. Aucune sauvegarde n'est nécessaire, car GitHub permet de tout reconstruire.
+
+## 7. Sécurité
+
+Le niveau retenu est celui d'un **outil local mono-utilisateur, en lecture seule**. Détail dans l'[ADR 0005](adr/0005-securite-serveur-local.md).
+
+- Écoute sur `127.0.0.1` uniquement, jamais `0.0.0.0`. Port automatique (`0`) par défaut, ou fixé par `--port`.
+- **Contrôle de l'en-tête `Host`**, qui doit valoir `127.0.0.1:<port>` ou `localhost:<port>` : sinon le serveur répond 421, ce qui protège du DNS rebinding. Aucun en-tête CORS n'est envoyé. Seules les méthodes GET et HEAD sont acceptées, les autres reçoivent 405.
+- Fichiers statiques servis **uniquement** depuis `viz/public/`, après normalisation du chemin : toute traversée reçoit 403.
+- En-têtes de réponse : `Content-Security-Policy: default-src 'self'; script-src 'self' 'sha256-<hash de l'importmap>'; img-src 'self' data:; style-src 'self'; connect-src 'self'`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`.
+  - L'importmap est forcément un script inline : son empreinte est calculée par le serveur au démarrage, à partir de `index.html`.
+  - Aucun autre script inline n'est autorisé.
+  - Les styles posés en JavaScript par `CSS2DRenderer` (CSSOM) ne sont pas concernés par `style-src`.
+- Les titres d'issues et les logins sont considérés comme des données non fiables : ils sont rendus uniquement par `textContent`, jamais par `innerHTML`.
+- **Aucun secret** : l'authentification GitHub est déléguée à `gh`, et aucun token ne transite par le serveur ni par le journal. `gh` est appelé par `execFile`, avec des arguments en tableau et sans shell.
+- Le collecteur ne fait jamais échouer la session. Il est `async`, attrape toutes ses erreurs et sort toujours avec le code 0. `guard.cjs` reste un hook distinct, synchrone et inchangé.
+- Dépendances : aucune à l'exécution. Three.js est vendoré à une version épinglée, avec sa licence MIT (`viz/public/vendor/three/LICENSE`, `VERSION`). Les devDependencies sont figées par `package-lock.json`.
+
+## 8. Réutiliser avant de construire
+
+| Besoin | Solution existante | Pourquoi | Alternative écartée |
+|---|---|---|---|
+| Rendu 3D | Three.js 0.187.0 (`build/three.module.js` et `build/three.core.js`), chargé par un importmap local | C'est le standard WebGL, distribué en modules ES qui se chargent sans build. | Babylon.js (plus lourd, sans valeur ajoutée ici), React Three Fiber (build requis) |
+| Caméra | `three/addons/controls/OrbitControls.js` | Standard, maintenu avec Three.js. | Contrôles maison |
+| Étiquettes | `three/addons/renderers/CSS2DRenderer.js` | Le texte DOM reste net et accessible, sans police 3D. | `TextGeometry` (lourd, flou) |
+| Halo des agents | `EffectComposer`, `RenderPass`, `UnrealBloomPass` et `OutputPass` (addons) | Donnent le rendu « entités lumineuses » sans shader maison. | Shader de glow sur mesure |
+| Grand nombre de features | `THREE.InstancedMesh` | Un seul appel de dessin pour des centaines d'objets. | Un mesh par feature |
+| Push temps réel | Server-Sent Events (`text/event-stream`, `EventSource`) | Le flux est unidirectionnel, la reconnexion est native, et on n'ajoute aucune dépendance. | WebSocket (`ws`, dépendance npm) |
+| Collecte d'événements | Hooks Claude Code (`PreToolUse`, `PostToolUse`, `SubagentStart`, `SubagentStop`), en mode `async: true` | C'est le point d'extension officiel, sans latence pour la session. | Analyser les transcripts JSONL de Claude Code (format interne, non contractuel) |
+| Accès GitHub | CLI `gh`, déjà requise | On réutilise l'authentification de l'utilisateur, sans token à gérer, comme `guard.cjs`. | API REST avec un token (secret à gérer), Octokit (dépendance) |
+| Racine du journal | `git rev-parse --git-common-dir` | Partagé nativement par tous les worktrees du repo. | `${CLAUDE_PLUGIN_DATA}` (pas garanti dans les skills, indexation par projet à faire soi-même) |
+| Tests | `node:test`, `node:assert/strict` | Intégrés à Node ≥ 22, avec mocks et timers. | Jest, Vitest (dépendances) |
+| Lint | ESLint 10, `@eslint/js` et `globals` | Standard, utilisé en dev uniquement. | Biome (moins répandu ici) |
+| **Sur mesure** | Normalisation des payloads et parsing des commandes `gh`, réducteur d'état, layout et scène du pipeline | C'est la valeur métier propre au workflow gepet-squad : aucune brique existante ne la fournit. Justifié dans l'[ADR 0007](adr/0007-logique-metier-sur-mesure.md). | — |
+
+## 9. Conventions
+
+- **Structure** :
+  ```
+  hooks/events.cjs            collecteur (entrée unique de tous les hooks d'événements)
+  hooks/lib/normalize.cjs     payload de hook → événement v1 (pur)
+  hooks/lib/gh-command.cjs    ligne de commande gh → événement v1 (pur)
+  hooks/lib/journal.cjs       résolution du git common dir, append, rotation
+  viz/server.cjs              CLI et serveur HTTP
+  hooks/lib/schema.cjs        schéma d'événement v1 (contrat lu par viz-server)
+  viz/lib/reducer.cjs         (instantané, événements) → état (pur)
+  viz/lib/github.cjs          instantané via gh (execFile)
+  viz/lib/tail.cjs            suivi du journal (offset + fs.watchFile)
+  viz/lib/http.cjs            routage, en-têtes de sécurité, statiques, SSE
+  viz/public/index.html       importmap, conteneur, repli texte
+  viz/public/js/state.js      application des événements côté client (pur)
+  viz/public/js/layout.js     positions des stations, des files et des agents (pur)
+  viz/public/js/scene.js      rendu Three.js
+  viz/public/js/labels.js     étiquettes CSS2D
+  viz/public/js/main.js       amorçage, fetch /state, EventSource
+  viz/public/vendor/three/    build/three.module.js, build/three.core.js, addons/…, LICENSE, VERSION
+  skills/gepet-squad-viz/SKILL.md
+  scripts/vendor-three.sh     mise à jour du vendoring (dev uniquement, npm pack)
+  tests/hooks/  tests/viz-server/  tests/viz-web/  tests/fixtures/
+  ```
+- **Nommage** :
+  - fichiers en kebab-case, sans accent ;
+  - `.cjs` pour Node (cohérent avec `guard.cjs`), `.js` (modules ES) pour le navigateur ;
+  - tests en `*.test.cjs` ou `*.test.mjs`.
+- **Modules purs d'abord** : toute logique testable (normalisation, réducteur, layout, application d'un événement) vit dans un module sans I/O, et l'I/O reste dans des modules fins. C'est ce qui rend la 3D testable sans WebGL.
+- **Erreurs** :
+  - le collecteur avale toutes ses erreurs (code 0, rien sur stdout) et les trace dans `<git-common-dir>/gepet-squad/collector.log` (borné à 256 Ko) ;
+  - le serveur logue sur stderr, au format `[gepet-squad-viz] niveau message` ;
+  - si `gh` échoue, le serveur garde le dernier instantané et pousse un événement SSE `warning` ;
+  - côté front, si WebGL est indisponible, on affiche une liste texte des statuts.
+- **Fixtures** : les payloads de hooks réels sont capturés une fois avec `claude --debug-file`, puis anonymisés dans `tests/fixtures/hooks/`. Chaque type d'événement doit avoir au moins une fixture réelle.
+- **Commits** : Conventional Commits en français (`feat(viz-server): …`), comme l'historique actuel. Bump semver dans `.claude-plugin/plugin.json` et une entrée dans `CHANGELOG.md` par changement de comportement. La version cible de la brique est **0.2.0**.
+- **Stratégie de tests** : voir l'[ADR 0006](adr/0006-strategie-de-tests.md).
+
+## 10. Hébergement & CI
+
+- **Exécution** : 100 % locale, livrée dans le plugin. Aucun service distant autre que GitHub, appelé via `gh`.
+- **CI** : GitHub Actions `.github/workflows/ci.yml`, sur chaque PR vers `develop` et chaque push sur `develop`.
+  - Matrice `ubuntu-latest` et `windows-latest`, Node 22 : le suivi de fichier et les chemins diffèrent sous Windows.
+  - Étapes : `npm ci` → `npm run lint` → `npm test` → `bash -n scripts/bootstrap.sh`.
+  - `claude plugin validate .` tourne en CI si la CLI s'installe sans authentification, sinon c'est une vérification locale obligatoire avant la PR.
+- **Environnements** : `develop` (intégration) et `main` (release mergée par l'utilisateur). Pas de déploiement : la distribution passe par la marketplace du repo (`/plugin marketplace update claude-gepet-squad`).
+
+## 11. Décisions (ADR)
+
+- [0001 — Découpage de la visualisation dans le plugin](adr/0001-decoupage-visualisation-dans-le-plugin.md)
+- [0002 — Stack sans build : Node standard, Three.js vendoré, SSE](adr/0002-stack-sans-build-three-vendore-sse.md)
+- [0003 — Journal d'événements local et état fusionné avec GitHub](adr/0003-journal-evenements-et-etat-fusionne.md)
+- [0004 — Capture du cycle de vie des agents, y compris en arrière-plan](adr/0004-capture-cycle-de-vie-des-agents.md)
+- [0005 — Sécurité du serveur local](adr/0005-securite-serveur-local.md)
+- [0006 — Stratégie de tests](adr/0006-strategie-de-tests.md)
+- [0007 — Logique métier sur mesure (normalisation, réducteur, scène)](adr/0007-logique-metier-sur-mesure.md)
