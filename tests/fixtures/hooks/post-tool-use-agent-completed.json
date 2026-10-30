@@ -1,0 +1,33 @@
+{
+  "_provenance": "doc:https://code.claude.com/docs/en/hooks (PostToolUse, tool_response d'un agent synchrone : status, agentId, content, resolvedModel, totalTokens, totalDurationMs, totalToolUseCount, usage) ; valeurs anonymisées",
+  "session_id": "5f3c1a9e-7b2d-4c6e-9a41-0d8e2b7f6c13",
+  "transcript_path": "/home/user/.claude/projects/-home-user-demo-todo/5f3c1a9e-7b2d-4c6e-9a41-0d8e2b7f6c13.jsonl",
+  "cwd": "/home/user/demo-todo",
+  "permission_mode": "default",
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Agent",
+  "tool_input": {
+    "description": "Vérifier la PR 12",
+    "subagent_type": "claude-gepet-squad:verificateur",
+    "prompt": "REFERENCES: /home/user/.claude/plugins/claude-gepet-squad/skills/gepet-squad/references/\nREPO: acme/demo-todo\nISSUE: 7\nPR: 12\nTENTATIVE: 2"
+  },
+  "tool_response": {
+    "status": "completed",
+    "agentId": "b7e1f4a2c9d83056",
+    "content": [
+      { "type": "text", "text": "RAPPORT_VERIFICATION\nVerdict: PASS — PR #12 — tentative 2\nSECRET_CONTENT_MARKER" }
+    ],
+    "resolvedModel": "claude-sonnet-4-5",
+    "totalTokens": 12450,
+    "totalDurationMs": 48211,
+    "totalToolUseCount": 7,
+    "usage": {
+      "input_tokens": 8320,
+      "output_tokens": 1130,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 3000
+    }
+  },
+  "tool_use_id": "toolu_01Bc4Yq6Tn8Hj3Mp5Rw2Vx9K",
+  "duration_ms": 48300
+}
