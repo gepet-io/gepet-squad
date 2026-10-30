@@ -15,7 +15,7 @@
 //   gh pr create --head release/...          -> release.opened     { ref: <branche> }
 //   gh pr merge N                            -> pr.merged          { pr: N }
 //   gh issue close N                         -> issue.closed       { issue: N }
-//   gh issue create [--milestone M]          -> issue.created      { ref: M }
+//   gh issue create --milestone M [--label status:S] -> issue.created  { ref: M, status: S }
 //   gh api -X PATCH repos/o/r/milestones/N   -> milestone.changed  { ref: "N", status: <state> }
 // Le numéro de la PR ou de l'issue créée n'est connu que dans la sortie de la commande, que le hook PostToolUse n'analyse pas.
 
@@ -277,7 +277,13 @@ function issueClose(args) {
 
 function issueCreate(args) {
   const { flags } = parseArgs(args, GH_SHORT_VALUE_FLAGS, GH_LONG_VALUE_FLAGS);
-  return [{ type: "issue.created", ref: shorten(lastFlag(flags, "milestone")) }];
+  // `ref` (titre du milestone) est obligatoire pour issue.created (ARCHITECTURE § 6) : sans milestone, rien.
+  const ref = shorten(lastFlag(flags, "milestone"));
+  if (ref === undefined) return [];
+  const statusLabel = labels(flags, "label")
+    .map((label) => /^status:(.+)$/.exec(label))
+    .find((m) => m && STATUSES.has(m[1]));
+  return [{ type: "issue.created", ref, status: statusLabel ? statusLabel[1] : undefined }];
 }
 
 function prCreate(args) {
