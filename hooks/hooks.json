@@ -1,5 +1,5 @@
 {
-  "description": "Garde-fou gepet-squad : dans un repo contenant .gepet-squad.json, bloque le push direct sur main, le force-push sur develop et le merge des PR vers main.",
+  "description": "Hooks gepet-squad : garde-fou (dans un repo contenant .gepet-squad.json, bloque le push direct sur main, le force-push sur develop et le merge des PR vers main) et collecteur d'événements asynchrone (journal local pour la vue du projet).",
   "hooks": {
     "PreToolUse": [
       {
@@ -8,6 +8,78 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/guard.cjs\"",
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/events.cjs\"",
+            "async": true,
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "SubagentHandback",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/events.cjs\"",
+            "async": true,
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/events.cjs\"",
+            "async": true,
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/events.cjs\"",
+            "async": true,
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "matcher": "^claude-gepet-squad:",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/events.cjs\"",
+            "async": true,
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "^claude-gepet-squad:",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/events.cjs\"",
+            "async": true,
             "timeout": 15
           }
         ]
