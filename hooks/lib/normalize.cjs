@@ -6,7 +6,7 @@
 // recopiés. On n'extrait que MODE, ISSUE, PR et TENTATIVE du prompt, puis l'en-tête du bloc et la ligne
 // `Verdict:` ou `Statut:` du rapport.
 
-const { SCHEMA_VERSION, normalizeAgentId, validate } = require("./schema.cjs");
+const { SCHEMA_VERSION, MAX_ID_LENGTH, isPlainObject, normalizeAgentId, validate } = require("./schema.cjs");
 
 const SQUAD_AGENT_PREFIX = "claude-gepet-squad:";
 // `Task` est l'ancien nom de l'outil `Agent`.
@@ -26,12 +26,6 @@ const REPORT_BLOCKS = new Set([
   "RAPPORT_TESTS",
 ]);
 
-const MAX_ID_LENGTH = 200;
-
-function isPlainObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
 function str(value) {
   return typeof value === "string" && value.trim() !== "" ? value.trim().slice(0, MAX_ID_LENGTH) : undefined;
 }
@@ -47,16 +41,23 @@ function matchInt(text, regex) {
   return Number.isSafeInteger(n) ? n : undefined;
 }
 
+// Début d'une section libre (`Notes :`, `RAPPORT :`) : ce qui suit n'est plus de la mission.
+const FREE_TEXT_START = /^[ \t]*(?:Notes?|RAPPORT)[ \t]*:/m;
+
 // Champs de mission extraits du prompt : `MODE: …`, `ISSUE: 2`, `PR: #12`, `TENTATIVE: 1`.
+// Seuls les champs en début de ligne comptent, et seule la première occurrence, avant les notes libres
+// ou le rapport recopié (un correctif peut citer d'anciens `PR:` ou `ISSUE:`).
 // Les verificateur et testeur n'ont pas de MODE.
 function extractMission(prompt) {
   if (typeof prompt !== "string") return { mode: undefined, issue: undefined, pr: undefined, attempt: undefined };
-  const mode = /\bMODE\s*:\s*([A-Z][A-Z0-9_]*)/.exec(prompt);
+  const cut = prompt.search(FREE_TEXT_START);
+  const head = cut === -1 ? prompt : prompt.slice(0, cut);
+  const mode = /^[ \t]*MODE[ \t]*:[ \t]*([A-Z][A-Z0-9_]*)/m.exec(head);
   return {
     mode: mode ? mode[1] : undefined,
-    issue: matchInt(prompt, /\bISSUE\s*:\s*#?(\d+)/),
-    pr: matchInt(prompt, /\bPR\s*:\s*#?(\d+)/),
-    attempt: matchInt(prompt, /\bTENTATIVE\s*:\s*(\d+)/),
+    issue: matchInt(head, /^[ \t]*ISSUE[ \t]*:[ \t]*#?(\d+)/m),
+    pr: matchInt(head, /^[ \t]*PR[ \t]*:[ \t]*#?(\d+)/m),
+    attempt: matchInt(head, /^[ \t]*TENTATIVE[ \t]*:[ \t]*(\d+)/m),
   };
 }
 
@@ -186,7 +187,8 @@ function fromHandback(payload, now) {
   const { block, verdict } = extractReport(input.message);
   return {
     ...baseEvent("agent.reported", payload, now),
-    toolUseId: str(payload.tool_use_id),
+    // Pas de `toolUseId` : ici c'est l'appel de SubagentHandback, alors que partout ailleurs `toolUseId`
+    // désigne l'appel de l'outil Agent, clé de corrélation du réducteur (ADR 0004).
     agentId,
     agentType: str(payload.agent_type),
     block,

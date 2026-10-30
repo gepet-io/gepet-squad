@@ -110,12 +110,20 @@ describe("fixtures : événement attendu pour chaque payload", () => {
       src: "hook",
       type: "agent.reported",
       sessionId: SESSION,
-      toolUseId: "toolu_01Cd5Zr7Uo9Jk4Nq6Sx3Wy8L",
       agentId: "b7e1f4a2c9d83056",
       agentType: "claude-gepet-squad:verificateur",
       block: "RAPPORT_VERIFICATION",
       verdict: "PASS",
     });
+  });
+
+  test("agent.reported ne porte pas de toolUseId : celui de SubagentHandback n'est pas celui de l'outil Agent", () => {
+    const payload = fixture("pre-tool-use-subagent-handback");
+    assert.equal(typeof payload.tool_use_id, "string");
+    const e = run(payload);
+    assert.equal(e.type, "agent.reported");
+    assert.equal("toolUseId" in e, false);
+    assert.equal(JSON.stringify(e).includes(payload.tool_use_id), false);
   });
 
   test("chaque événement produit est valide selon le schéma v1", () => {
@@ -128,10 +136,11 @@ describe("fixtures : événement attendu pour chaque payload", () => {
     }
   });
 
-  test("chaque fixture porte une provenance doc: ou capture:", () => {
+  test("chaque fixture porte une provenance stricte doc:<URL> ou capture:<version>, le commentaire va dans _note", () => {
     for (const file of fs.readdirSync(FIXTURES).filter((f) => f.endsWith(".json"))) {
-      const p = fixture(path.basename(file, ".json"))._provenance;
-      assert.match(p, /^(doc:https:\/\/|capture:)/, file);
+      const f = fixture(path.basename(file, ".json"));
+      assert.match(f._provenance, /^(doc:https:\/\/\S+|capture:\S+)$/, file);
+      assert.equal(typeof f._note, "string", `${file} : _note manquant`);
     }
   });
 
@@ -310,6 +319,30 @@ describe("extraction du prompt", () => {
     assert.equal(extractMission("SOUS_PR: 9").pr, undefined);
   });
 
+  test("ne lit que les champs en début de ligne, pas ceux cités au milieu d'une phrase", () => {
+    const m = extractMission("Voir le MODE: CORRECTIF et ISSUE: 99, PR: 98, TENTATIVE: 97 cités ci-dessus.\nISSUE: 5");
+    assert.deepEqual(m, { mode: undefined, issue: 5, pr: undefined, attempt: undefined });
+    assert.equal(extractMission("  MODE: IMPLEMENTATION").mode, "IMPLEMENTATION");
+  });
+
+  test("prend la première occurrence", () => {
+    const m = extractMission("MODE: IMPLEMENTATION\nISSUE: 2\nPR: 5\nISSUE: 99\nPR: 98\nMODE: CORRECTIF");
+    assert.deepEqual(m, { mode: "IMPLEMENTATION", issue: 2, pr: 5, attempt: undefined });
+  });
+
+  test("ignore ce qui suit les Notes et le RAPPORT recopié", () => {
+    const prompt = "MODE: CORRECTIF\nISSUE: 2\nNotes :\nPR: 77\nTENTATIVE: 8";
+    assert.deepEqual(extractMission(prompt), { mode: "CORRECTIF", issue: 2, pr: undefined, attempt: undefined });
+    const withReport = "MODE: CORRECTIF\nISSUE: 2\nPR: 17\nRAPPORT:\nRAPPORT_VERIFICATION\nISSUE: 66\nPR: 55\nTENTATIVE: 1";
+    assert.deepEqual(extractMission(withReport), { mode: "CORRECTIF", issue: 2, pr: 17, attempt: undefined });
+  });
+
+  test("lit une mission en fins de ligne Windows", () => {
+    assert.deepEqual(extractMission("MODE: IMPLEMENTATION\r\nISSUE: 3\r\nPR: 4\r\n"), {
+      mode: "IMPLEMENTATION", issue: 3, pr: 4, attempt: undefined,
+    });
+  });
+
   test("ignore un prompt absent, non texte ou sans champ", () => {
     for (const value of [undefined, null, 42, {}, "", "rien à extraire"]) {
       assert.deepEqual(extractMission(value), { mode: undefined, issue: undefined, pr: undefined, attempt: undefined });
@@ -482,6 +515,14 @@ describe("limite de 4 Ko", () => {
     assert.notEqual(e, null);
     assert.ok(Buffer.byteLength(JSON.stringify(e) + "\n") <= MAX_LINE_BYTES);
     assert.equal(e.sessionId.length, 200);
+  });
+
+  test("tous les identifiants d'agent sont tronqués à 200 caractères", () => {
+    const start = run({ ...fixture("subagent-start"), agent_id: "a".repeat(5000) });
+    assert.equal(start.agentId.length, 200);
+    const launched = fixture("post-tool-use-agent-async-launched");
+    const e = run({ ...launched, tool_response: { ...launched.tool_response, agentId: "agent-" + "b".repeat(5000) } });
+    assert.equal(e.agentId, "b".repeat(200));
   });
 
   test("un prompt de 1 Mo ne fait ni exception ni fuite", () => {

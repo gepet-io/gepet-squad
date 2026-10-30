@@ -1,5 +1,6 @@
 {
-  "_provenance": "doc:https://code.claude.com/docs/en/hooks (champs communs, entrée de l'outil Agent) ; valeurs anonymisées, prompt rédigé selon le format de mission du skill gepet-squad",
+  "_provenance": "doc:https://code.claude.com/docs/en/hooks",
+  "_note": "(champs communs, entrée de l'outil Agent) ; valeurs anonymisées, prompt rédigé selon le format de mission du skill gepet-squad",
   "session_id": "5f3c1a9e-7b2d-4c6e-9a41-0d8e2b7f6c13",
   "transcript_path": "/home/user/.claude/projects/-home-user-demo-todo/5f3c1a9e-7b2d-4c6e-9a41-0d8e2b7f6c13.jsonl",
   "cwd": "/home/user/demo-todo",

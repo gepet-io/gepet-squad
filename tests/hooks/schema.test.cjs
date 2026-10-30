@@ -7,6 +7,8 @@ const {
   MAX_LINE_BYTES,
   EVENT_TYPES,
   ALLOWED_FIELDS,
+  MAX_ID_LENGTH,
+  isPlainObject,
   normalizeAgentId,
   validate,
 } = require("../../hooks/lib/schema.cjs");
@@ -132,6 +134,31 @@ describe("validate : rejets", () => {
   });
 });
 
+describe("validate : horodatage ts", () => {
+  test("accepte les dates ISO 8601 avec fuseau", () => {
+    for (const ts of ["2026-10-30T10:00:00.000Z", "2026-10-30T10:00:00Z", "2026-10-30T12:00:00.5+02:00"]) {
+      assert.equal(validate(event("agent.started", { ts })).valid, true, ts);
+    }
+  });
+
+  test("rejette tout ce qui n'est pas une date ISO 8601", () => {
+    for (const ts of ["hier", "2026-10-30", "2026-10-30 10:00:00", "30/10/2026", "2026-10-30T10:00:00", "2026-13-45T25:61:61Z", "1761818400000"]) {
+      const r = validate(event("agent.started", { ts }));
+      assert.equal(r.valid, false, ts);
+      assert.match(r.errors.join("\n"), /ISO 8601/);
+    }
+    assert.equal(validate(event("agent.started", { ts: 1761818400000 })).valid, false);
+  });
+});
+
+describe("isPlainObject", () => {
+  test("distingue les objets des tableaux, de null et des scalaires", () => {
+    assert.equal(isPlainObject({}), true);
+    assert.equal(isPlainObject({ a: 1 }), true);
+    for (const value of [null, undefined, [], "x", 1, true]) assert.equal(isPlainObject(value), false);
+  });
+});
+
 describe("validate : limite de 4 Ko par ligne", () => {
   // Remplit `label` pour atteindre exactement `bytes` octets, saut de ligne compris.
   function eventOfSize(bytes) {
@@ -172,6 +199,12 @@ describe("normalizeAgentId", () => {
   test("ne retire que le préfixe, une seule fois", () => {
     assert.equal(normalizeAgentId("agent-agent-x"), "agent-x");
     assert.equal(normalizeAgentId("my-agent-x"), "my-agent-x");
+  });
+
+  test("borne la longueur à 200 caractères, comme les autres identifiants", () => {
+    assert.equal(MAX_ID_LENGTH, 200);
+    assert.equal(normalizeAgentId("x".repeat(1000)).length, 200);
+    assert.equal(normalizeAgentId("agent-" + "x".repeat(1000)), "x".repeat(200));
   });
 
   test("renvoie undefined pour tout ce qui n'est pas un identifiant", () => {

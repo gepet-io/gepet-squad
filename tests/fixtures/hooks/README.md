@@ -1,6 +1,6 @@
 # Fixtures de payloads de hooks
 
-Ces fichiers sont les JSON que Claude Code envoie sur le stdin des hooks. Ils alimentent `tests/hooks/normalize.test.cjs`. Le champ `_provenance` est ignoré par `normalize()` ; il sert uniquement à tracer l'origine.
+Ces fichiers sont les JSON que Claude Code envoie sur le stdin des hooks. Ils alimentent `tests/hooks/normalize.test.cjs`. Le champ `_provenance` vaut strictement `doc:<URL>` ou `capture:<version>` ; un éventuel commentaire (anonymisation, choix de valeurs) va dans `_note`. Ces deux champs sont ignorés par `normalize()` ; ils servent uniquement à tracer l'origine.
 
 ## Provenance
 

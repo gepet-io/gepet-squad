@@ -31,7 +31,7 @@ const FINISH_SOURCES = Object.freeze(["tool", "stop"]);
 // avec les champs que l'ADR 0004 (`block`, `source`) et la minimisation (`TENTATIVE`) imposent.
 const FIELD_TYPES = Object.freeze({
   v: "version",
-  ts: "string",
+  ts: "date",
   src: "src",
   type: "type",
   sessionId: "string",
@@ -57,17 +57,30 @@ function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+// Longueur maximale d'un identifiant (session, outil, agent) recopié depuis un payload.
+const MAX_ID_LENGTH = 200;
+
 // Les identifiants d'agent arrivent sous deux formes (`agent-xxx` ou `xxx`) : on garde `xxx`.
 function normalizeAgentId(id) {
   if (typeof id !== "string") return undefined;
-  const bare = id.trim().replace(/^agent-/, "");
+  const bare = id.trim().replace(/^agent-/, "").slice(0, MAX_ID_LENGTH);
   return bare === "" ? undefined : bare;
+}
+
+// `ts` : date ISO 8601 avec fuseau (`Z` ou décalage), telle que produite par Date#toISOString.
+const ISO_8601 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
+
+function isIsoDate(value) {
+  return typeof value === "string" && ISO_8601.test(value) && !Number.isNaN(Date.parse(value));
 }
 
 function checkField(name, value, errors) {
   switch (FIELD_TYPES[name]) {
     case "version":
       if (value !== SCHEMA_VERSION) errors.push(`v doit valoir ${SCHEMA_VERSION}`);
+      break;
+    case "date":
+      if (!isIsoDate(value)) errors.push(`${name} doit être une date ISO 8601`);
       break;
     case "src":
       if (value !== "hook") errors.push('src doit valoir "hook"');
@@ -118,6 +131,8 @@ module.exports = {
   FINISH_SOURCES,
   ALLOWED_FIELDS,
   REQUIRED_FIELDS,
+  MAX_ID_LENGTH,
+  isPlainObject,
   normalizeAgentId,
   validate,
 };
