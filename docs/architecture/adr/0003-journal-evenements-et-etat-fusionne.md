@@ -61,6 +61,15 @@ Un type inconnu est ignoré par le serveur, ce qui permet d'ajouter des types sa
 
 `<REPO>` est lu dans `.gepet-squad.json`.
 
+Implémentation (`viz/lib/github.cjs`, dont l'en-tête fait foi) :
+- le module lit aussi `isDraft` et `mergedAt` des PR ;
+- il renvoie `{repo, fetchedAt, issues[], milestones[], pulls[]}`, avec des états en minuscules ;
+- dans `issues[]`, `status` et `retry` sont déduits des labels ;
+- les PR fermées sans merge sont écartées ;
+- en cas d'erreur, il renvoie une `GhError` de code `GH_REPO`, `GH_CONFIG`, `GH_MISSING`, `GH_AUTH`, `GH_TIMEOUT` ou `GH_PARSE`, avec un `message` affichable et un `detail` réservé au stderr du serveur.
+
+La forme complète est décrite dans `ARCHITECTURE.md`, § 6. Il reste une limite assumée au MVP : en layout `multirepo`, seules les PR du repo hub sont lues, et les features sont placées d'après les labels des issues du hub.
+
 **État fusionné**, calculé par un réducteur pur (`viz/lib/reducer.cjs`) :
 - `features` est initialisé par l'instantané, et les événements `feature.*`, `pr.*` et `issue.*` postérieurs à l'instantané le mettent à jour ;
 - à chaque nouvel instantané, **GitHub fait foi** pour le statut, le retry et l'état ouvert ou fermé ;

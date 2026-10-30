@@ -69,7 +69,9 @@ La structure du plugin (`hooks/`, `skills/`, `agents/`, `scripts/`) est imposée
 
 Dépendances entre sous-projets :
 - tous les scopes dépendent de l'outillage du scope `repo` ;
-- `viz-server` dépend du **schéma d'événement v1** produit par `hooks` ;
+- `viz-server` dépend de `hooks` par deux modules, lus par chemin relatif :
+  - le **schéma d'événement v1** (`hooks/lib/schema.cjs`) ;
+  - `hooks/lib/journal.cjs`, qui fournit `findSquadRoot` (racine du projet squad) et la résolution du chemin du journal. Ces deux fonctions sont donc aussi un contrat entre scopes, qu'on ne modifie pas sans vérifier `viz-server` ;
 - `viz-web` dépend du **contrat `/state` et SSE** exposé par `viz-server` ;
 - `skills` dépend de la CLI de `viz/server.cjs`.
 
@@ -154,6 +156,32 @@ Détail dans l'[ADR 0003](adr/0003-journal-evenements-et-etat-fusionne.md).
 
   `label` reste réservé en v1 : aucun type ne le produit. Le réducteur interprète `ref` et `status` **selon le type**, jamais de manière générique.
 - **Minimisation** : on n'enregistre **ni le prompt ni le rapport complet**. Seuls des champs extraits par expression régulière sont gardés : `MODE`, `ISSUE`, `PR` et `TENTATIVE` du prompt, l'en-tête du bloc et la ligne `Verdict:` ou `Statut:` du rapport.
+- **Instantané GitHub** : produit par `fetchSnapshot()` dans `viz/lib/github.cjs`. L'en-tête de ce module fait foi ; en voici le résumé.
+  ```
+  { repo: "owner/nom", fetchedAt: "<ISO 8601>",
+    issues:     [{ number, title, state, labels, status, retry, milestone, milestoneNumber }],
+    milestones: [{ number, title, state, openIssues, closedIssues, dueOn }],
+    pulls:      [{ number, title, state, head, base, url, draft, mergedAt }] }
+  ```
+  - **États en minuscules** :
+    - `"open"` ou `"closed"` pour les issues et les milestones ;
+    - `"open"`, `"merged"` ou `"closed"` pour les PR.
+  - **Champs des issues déduits des labels** :
+    - `status` est la valeur du label `status:*`, sans le préfixe. Il vaut `null` sans label ; s'il y a plusieurs labels, on retient le premier ;
+    - `retry` est le plus grand K des labels `retry:K`, ou `null` ;
+    - `labels` garde les noms bruts.
+  - **`pulls`** contient les PR ouvertes, et les PR mergées vers la branche d'intégration ou de production : `develop` et `main` par défaut, ou `branches` de `.gepet-squad.json`. **Les PR fermées sans merge sont absentes.**
+  - **Tri et limites** : les listes sont triées par numéro croissant, sans doublon. Une requête lit au plus 500 issues, 200 PR et 100 milestones.
+  - **Erreurs** : la promesse est rejetée avec une `GhError`, dont le `code` vaut :
+    - `GH_REPO` : repo absent ou invalide, refusé avant tout appel ;
+    - `GH_CONFIG` : `.gepet-squad.json` introuvable ou illisible ;
+    - `GH_MISSING` : `gh` introuvable ;
+    - `GH_AUTH` : code de sortie non nul (authentification, accès, repo inconnu) ;
+    - `GH_TIMEOUT` : plus de 15 s par appel ;
+    - `GH_PARSE` : JSON inattendu.
+
+    `message` est générique et **affichable** : c'est lui qu'on recopie dans `warnings[]`. `detail` contient le stderr brut tronqué de `gh` ; il n'est **pas affichable** et ne va que sur le stderr du serveur (ADR 0005).
+  - **Limite multi-repo** : en layout `multirepo`, seules les issues, les milestones et les **PR du repo hub** (`repo` de `.gepet-squad.json`) sont lues. Les PR des sous-repos (`scopes.<x>.repo`) n'apparaissent pas dans `pulls`. La vue s'appuie donc sur les labels `status:*` des issues du hub, qui suffisent pour placer les features. Lire les PR des sous-repos demandera un ADR.
 - **État fusionné** : servi par `/state` et calculé par un réducteur pur.
   `{ repo, updatedAt, milestones[], features[{ number, title, milestone, status, retry, pr, station }], agents[{ id, type, mode, issue, pr, phase: requested|running|reported|finished|unknown, since }], releases[], warnings[{ code, message, at }] }`.
   `warnings` est vide quand tout va bien. Il porte par exemple `GH_AUTH` quand `gh` échoue.
