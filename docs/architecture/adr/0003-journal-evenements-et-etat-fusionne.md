@@ -20,6 +20,15 @@ Les agents tournent dans des worktrees (`isolation: "worktree"`), et donc dans d
 
 La liste des champs obligatoires et optionnels de chaque type est donnée dans `ARCHITECTURE.md`, § 6 (« Champs par type »).
 
+`validate()` contrôle seulement la version, le type, les champs connus et la taille. Les champs obligatoires par type sont garantis par les producteurs et vérifiés par leurs tests. Le réducteur ignore, sans exception, un événement auquel il manque un champ obligatoire.
+
+Valeurs possibles de `verdict` :
+- `PASS` et `FAIL` (vérification, tests) ;
+- `LIVRÉ` et `BLOQUÉ` (développeur) ;
+- `APPROUVÉ` et `À REVOIR` (revue de roadmap).
+
+`block` est optionnel sur `agent.reported` : il est absent si le rapport ne commence pas par un en-tête de bloc connu.
+
 - `attempt` : la valeur de `TENTATIVE:` extraite du prompt (`agent.requested`). Ne pas confondre avec `retry`.
 - `retry` : un entier ≥ 1, le K du label `retry:K` de l'issue. Porté uniquement par `feature.retry`. Ajouté pendant la PR de `gh-command.cjs` : c'est un champ optionnel et rétrocompatible, donc sans changement de version de schéma.
 - `ref` : toujours une chaîne, dont le sens dépend du type :

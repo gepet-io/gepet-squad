@@ -134,12 +134,14 @@ Détail dans l'[ADR 0003](adr/0003-journal-evenements-et-etat-fusionne.md).
 
   **Champs par type.** Les champs communs `v`, `ts`, `src`, `type` et `sessionId?` sont toujours présents, et `validate()` refuse tout champ hors de cette liste. Dans le tableau, ✔ indique un champ obligatoire et ? un champ optionnel.
 
+  `validate()` contrôle seulement la version, le type, les champs connus et la taille de 4 Ko. Il ne vérifie pas les champs obligatoires par type. Ces champs obligatoires sont un engagement des **producteurs** (`normalize.cjs`, `gh-command.cjs`), vérifié par leurs tests unitaires. Côté consommateur, le réducteur doit tolérer un champ obligatoire manquant : il ignore alors l'événement, sans lever d'exception.
+
   | Type | Source | Champs propres |
   |---|---|---|
   | `agent.requested` | `PreToolUse` sur `Agent` | `toolUseId` ✔, `agentType` ✔, `mode` ?, `issue` ?, `pr` ?, `attempt` ? |
   | `agent.launched` | `PostToolUse` sur `Agent` (`async_launched`) | `toolUseId` ✔, `agentId` ✔, `agentType` ? |
   | `agent.started` | `SubagentStart` | `agentId` ✔, `agentType` ✔ |
-  | `agent.reported` | `PreToolUse` sur `SubagentHandback` | `agentId` ✔, `agentType` ?, `block` ✔, `verdict` ? (`PASS`, `FAIL`, `LIVRÉ`, `BLOQUÉ`) |
+  | `agent.reported` | `PreToolUse` sur `SubagentHandback` | `agentId` ✔, `agentType` ?, `block` ? (absent si le message ne commence pas par un en-tête de bloc connu), `verdict` ? (`PASS`, `FAIL`, `LIVRÉ`, `BLOQUÉ`, `APPROUVÉ`, `À REVOIR`) |
   | `agent.finished` | `SubagentStop`, ou `PostToolUse` sur `Agent` (`completed`) | `agentId` ✔, `source` ✔ (`stop` ou `tool`), `toolUseId` ? (si `source: "tool"`), `agentType` ?, `block` ?, `verdict` ? |
   | `feature.status` | `gh issue edit … --add-label status:X` | `issue` ✔, `status` ✔ (X, sans le préfixe `status:`) |
   | `feature.retry` | `gh issue edit … --add-label retry:K` | `issue` ✔, `retry` ✔ (K) |
