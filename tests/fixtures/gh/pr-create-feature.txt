@@ -1,0 +1,1 @@
+gh pr create --repo o/r --base develop --head feature/12-ajouter-une-tache --title "feat(api): Ajouter une tâche" --body-file /tmp/pr-body.md

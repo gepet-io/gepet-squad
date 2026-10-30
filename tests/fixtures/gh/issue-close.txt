@@ -1,0 +1,1 @@
+gh issue close 12 --repo o/r --comment "Mergée sur develop via #34"

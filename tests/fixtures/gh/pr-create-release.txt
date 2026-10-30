@@ -1,0 +1,1 @@
+gh pr create --repo o/r --base main --head release/m1-socle --title "Release M1 — Socle" --body-file /tmp/release-body.md

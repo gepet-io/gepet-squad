@@ -1,0 +1,3 @@
+gh pr merge 34 --repo o/r --squash --delete-branch &&
+gh issue close 12 --repo o/r --comment "Mergée sur develop via #34" &&
+gh issue edit 12 --repo o/r --remove-label status:in-test --add-label status:done
