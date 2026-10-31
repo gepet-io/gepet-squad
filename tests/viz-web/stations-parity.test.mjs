@@ -4,14 +4,15 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
+import { readFileSync } from "node:fs";
 
 import * as client from "../../viz/public/js/state.js";
-import { at, ev, evt, stateOf, M1, M2, DEV, VERIF, TEST, ARCHI } from "./support.mjs";
+import { at, ev, evt, sse, stateOf, M1, M2, DEV, VERIF, TEST, ARCHI } from "./support.mjs";
 
 const require = createRequire(import.meta.url);
 const server = require("../../viz/lib/reducer.cjs");
 
-const { init, apply } = client;
+const { init, apply, tick } = client;
 
 // Instantané au format de fetchSnapshot() : une feature, deux milestones, des PR optionnelles.
 function snapshot({ status, milestone = M1, milestones = [["open"], ["open"]], pulls = [] }) {
@@ -123,7 +124,7 @@ describe("parité des stations des features, par événement SSE", () => {
         const event = ev("feature.status", 5, { issue: 7, status: to });
         const expected = serverState(snap, [event]).features[0];
         const model = init(serverState(snap));
-        const { model: next } = apply(model, { event: "evt", data: event });
+        const { model: next } = apply(model, sse("evt", event));
         assert.deepEqual(placeOf(next.features[0]), placeOf(expected));
         assert.equal(next.features[0].status, expected.status);
         assert.equal(next.features[0].retry, expected.retry);
@@ -136,7 +137,7 @@ describe("parité des stations des features, par événement SSE", () => {
       const snap = { ...snapshot({ status: "ready" }), issues: [] };
       const event = ev("feature.status", 5, { issue: 7, status: to });
       const expected = serverState(snap, [event]).features[0];
-      const next = apply(init(serverState(snap)), { event: "evt", data: event }).model.features[0];
+      const next = apply(init(serverState(snap)), sse("evt", event)).model.features[0];
       assert.deepEqual(placeOf(next), placeOf(expected), to);
     }
   });
@@ -150,7 +151,7 @@ describe("parité des stations des features, par événement SSE", () => {
     ];
     let model = init(serverState(snap));
     for (const [i, event] of journal.entries()) {
-      model = apply(model, { event: "evt", data: event }).model;
+      model = apply(model, sse("evt", event)).model;
       const expected = serverState(snap, journal.slice(0, i + 1)).features[0];
       assert.deepEqual(placeOf(model.features[0]), placeOf(expected), `après l'événement ${i + 1}`);
     }
@@ -160,7 +161,7 @@ describe("parité des stations des features, par événement SSE", () => {
     const lone = [ev("feature.status", 1, { issue: 9, status: "blocked" })];
     const loneSnap = { ...snapshot({ status: "ready" }), issues: [] };
     const loneExpected = serverState(loneSnap, lone).features[0];
-    const loneNext = apply(init(serverState(loneSnap)), { event: "evt", data: lone[0] }).model.features[0];
+    const loneNext = apply(init(serverState(loneSnap)), sse("evt", lone[0])).model.features[0];
     assert.deepEqual(placeOf(loneNext), placeOf(loneExpected));
     assert.deepEqual(placeOf(loneNext), { station: "dev", escalated: true });
   });
@@ -169,7 +170,7 @@ describe("parité des stations des features, par événement SSE", () => {
     const snap = snapshot({ status: "in-test" });
     const journal = [ev("feature.status", 1, { issue: 7, status: "blocked" }), ev("feature.status", 2, { issue: 7, status: "in-test" })];
     let model = init(serverState(snap));
-    for (const event of journal) model = apply(model, { event: "evt", data: event }).model;
+    for (const event of journal) model = apply(model, sse("evt", event)).model;
     assert.deepEqual(placeOf(model.features[0]), placeOf(serverState(snap, journal).features[0]));
     assert.deepEqual(placeOf(model.features[0]), { station: "test", escalated: false });
   });
@@ -180,9 +181,9 @@ describe("parité des stations des features, par événement SSE", () => {
       const close = ev("milestone.changed", 5, { ref: "1", status: "closed" });
       const reopen = ev("milestone.changed", 6, { ref: "1", status: "open" });
       let model = init(serverState(snap));
-      model = apply(model, { event: "evt", data: close }).model;
+      model = apply(model, sse("evt", close)).model;
       assert.deepEqual(placeOf(model.features[0]), placeOf(serverState(snap, [close]).features[0]), `${status} fermé`);
-      model = apply(model, { event: "evt", data: reopen }).model;
+      model = apply(model, sse("evt", reopen)).model;
       assert.deepEqual(placeOf(model.features[0]), placeOf(serverState(snap, [close, reopen]).features[0]), `${status} rouvert`);
     }
   });
@@ -193,13 +194,13 @@ describe("parité des stations des features, par événement SSE", () => {
       const snapNoRelease = snapshot({ status });
       const opened = ev("release.opened", 5, { ref: "release/m1-socle" });
       const expectedOpened = serverState(snapNoRelease, [opened]);
-      const modelOpened = apply(init(serverState(snapNoRelease)), { event: "evt", data: opened }).model;
+      const modelOpened = apply(init(serverState(snapNoRelease)), sse("evt", opened)).model;
       assert.deepEqual(placeOf(modelOpened.features[0]), placeOf(expectedOpened.features[0]), `${status} après release.opened`);
       assert.deepEqual(modelOpened.releases.map((r) => [r.branch, r.state, r.milestone]), expectedOpened.releases.map((r) => [r.branch, r.state, r.milestone]));
 
       const merged = ev("pr.merged", 6, { pr: 40 });
       const expectedMerged = serverState(snap, [merged]);
-      const modelMerged = apply(init(serverState(snap)), { event: "evt", data: merged }).model;
+      const modelMerged = apply(init(serverState(snap)), sse("evt", merged)).model;
       assert.deepEqual(placeOf(modelMerged.features[0]), placeOf(expectedMerged.features[0]), `${status} après pr.merged`);
       assert.deepEqual(modelMerged.releases.map((r) => r.state), expectedMerged.releases.map((r) => r.state));
     }
@@ -217,7 +218,7 @@ describe("parité des stations des features, par événement SSE", () => {
     ];
     let model = init(serverState(snap));
     journal.forEach((event, i) => {
-      model = apply(model, { event: "evt", data: event }).model;
+      model = apply(model, sse("evt", event)).model;
       const expected = serverState(snap, journal.slice(0, i + 1));
       assert.deepEqual(model.milestones.map((m) => [m.number, m.total, m.done]), expected.milestones.map((m) => [m.number, m.total, m.done]));
     });
@@ -243,7 +244,7 @@ describe("parité du cycle de vie des agents", () => {
     const summary = (agents) => agents.map((a) => [a.id, a.type, a.station, a.phase, a.issue, a.verdict, a.block, a.agentId, a.toolUseId]);
     let model = init(serverState(snap, []));
     journal.forEach((event, i) => {
-      model = apply(model, { event: "evt", data: event }).model;
+      model = apply(model, sse("evt", event)).model;
       const expected = serverState(snap, journal.slice(0, i + 1), at(11));
       assert.deepEqual(summary(model.agents), summary(expected.agents), `après l'événement ${i + 1} (${event.type})`);
       assert.deepEqual(placeOf(model.features[0]), placeOf(expected.features[0]), `feature après ${event.type}`);
@@ -262,7 +263,7 @@ describe("parité de la lecture des événements", () => {
     ];
     const expected = serverState(snap, journal).features[0];
     let model = init(serverState(snap));
-    for (const event of journal) model = apply(model, { event: "evt", data: event }).model;
+    for (const event of journal) model = apply(model, sse("evt", event)).model;
     assert.deepEqual(placeOf(model.features[0]), placeOf(expected));
     assert.equal(model.features[0].status, expected.status);
     assert.equal(expected.status, "ready");
@@ -271,7 +272,134 @@ describe("parité de la lecture des événements", () => {
   test("le client lit les mêmes événements complets que le serveur (messages evt construits par support.mjs)", () => {
     // Garde-fou du test lui-même : evt() produit bien un événement v1 accepté par le réducteur.
     const message = evt("feature.status", 5, { issue: 7, status: "done" });
-    assert.equal(serverState(snapshot({ status: "ready" }), [message.data]).features[0].status, "done");
+    assert.equal(serverState(snapshot({ status: "ready" }), [JSON.parse(message.data)]).features[0].status, "done");
     assert.equal(apply(init(stateOf()), message).model.features[0].status, "done");
+  });
+});
+
+// --- Reprise d'un agent (ADR 0008) : la capture réelle et la sonde du vérificateur, événement par événement -------
+
+const CAPTURE = readFileSync(new URL("../fixtures/journal/capture-reprise.jsonl", import.meta.url), "utf8")
+  .split("\n")
+  .filter((line) => line.trim() !== "")
+  .map((line) => JSON.parse(line));
+
+// Instantané vide : les agents ne viennent que du journal.
+const EMPTY_SNAPSHOT = { repo: "o/r", fetchedAt: "2026-10-30T14:00:00.000Z", issues: [], milestones: [], pulls: [] };
+
+// Ce que le client doit partager avec le serveur pour chaque agent : phase, block, mode, station, et l'identité du cycle.
+const agentView = (agents) =>
+  agents.map((a) => ({
+    id: a.id,
+    type: a.type,
+    mode: a.mode,
+    station: a.station,
+    phase: a.phase,
+    block: a.block,
+    verdict: a.verdict,
+    issue: a.issue,
+    since: a.since,
+    updatedAt: a.updatedAt,
+    finishedAt: a.finishedAt,
+    agentId: a.agentId,
+    toolUseId: a.toolUseId,
+  }));
+
+// Rejoue `journal` : le client reçoit un événement à la fois, le serveur rejoue le journal tronqué. Compare après CHAQUE événement.
+function replayAndCompare(journal, label, snap = EMPTY_SNAPSHOT) {
+  let model = init(server.reduce(snap, [], journal[0].ts));
+  journal.forEach((event, i) => {
+    model = apply(model, sse("evt", event)).model;
+    const expected = server.reduce(snap, journal.slice(0, i + 1), event.ts);
+    assert.deepEqual(agentView(model.agents), agentView(expected.agents), `${label} : après l'événement ${i + 1} (${event.type} ${event.ts})`);
+  });
+  return model;
+}
+
+describe("parité de la reprise d'agent (ADR 0008), capture réelle", () => {
+  test("la capture compte 14 événements, dont une reprise par SendMessage", () => {
+    assert.equal(CAPTURE.length, 14);
+    assert.deepEqual(
+      CAPTURE.filter((e) => e.agentId === "a152ecd0174a7c035").map((e) => e.type),
+      ["agent.started", "agent.launched", "agent.reported", "agent.finished", "agent.started", "agent.finished", "agent.reported", "agent.finished"],
+    );
+  });
+
+  test("après chaque événement, phase, block, mode et station de chaque agent sont ceux du serveur", () => {
+    const model = replayAndCompare(CAPTURE, "capture");
+    // État final attendu par l'ADR 0008 : l'architecte repris finit en PROPOSITION, pas en QUESTIONS.
+    const resumed = model.agents.find((a) => a.agentId === "a152ecd0174a7c035");
+    assert.deepEqual(
+      [resumed.id, resumed.phase, resumed.block, resumed.mode, resumed.station, resumed.finishedAt, resumed.since],
+      ["toolu_01TgFJ174zajsWqDbJDYBTR2", "finished", "PROPOSITION", "CADRAGE_PROPOSITION", "cadrage", "2026-10-30T14:16:08.735Z", "2026-10-30T14:13:03.588Z"],
+    );
+    const other = model.agents.find((a) => a.agentId === "a7181e1aa24ee1883");
+    assert.deepEqual([other.phase, other.block, other.mode], ["finished", "QUESTIONS", "CADRAGE_QUESTIONS"]);
+  });
+
+  test("la reprise est visible au passage : finished -> running (14:14:22) puis finished -> reported (14:16:05)", () => {
+    let model = init(server.reduce(EMPTY_SNAPSHOT, [], CAPTURE[0].ts));
+    const phases = [];
+    for (const event of CAPTURE) {
+      const r = apply(model, sse("evt", event));
+      model = r.model;
+      for (const t of r.transitions) if (t.kind === "agent-phase" && t.id === "toolu_01TgFJ174zajsWqDbJDYBTR2") phases.push([event.ts.slice(11, 19), t.from, t.to]);
+    }
+    assert.deepEqual(phases, [
+      ["14:13:04", "requested", "running"],
+      ["14:13:33", "running", "reported"],
+      ["14:13:36", "reported", "finished"],
+      ["14:14:22", "finished", "running"],
+      ["14:15:36", "running", "finished"],
+      ["14:16:05", "finished", "reported"],
+      ["14:16:08", "reported", "finished"],
+    ]);
+  });
+
+  test("un lot de la capture, reçu dans le désordre, donne l'état du serveur", () => {
+    const shuffled = [...CAPTURE].reverse();
+    const model = apply(init(server.reduce(EMPTY_SNAPSHOT, [], CAPTURE[0].ts)), sse("evt", shuffled)).model;
+    const expected = server.reduce(EMPTY_SNAPSHOT, shuffled, CAPTURE.at(-1).ts);
+    assert.deepEqual(agentView(model.agents), agentView(expected.agents));
+  });
+
+  test("tick purge au dernier cycle, comme le serveur : l'architecte repris est retiré 10 min après sa dernière fin", () => {
+    const model = replayAndCompare(CAPTURE, "capture");
+    const ids = (agents) => agents.map((a) => a.id);
+    // 14:16:08.735 est la dernière fin du premier architecte (pas 14:13:36) ; 14:17:41.086 celle du second.
+    for (const now of ["2026-10-30T14:17:41.086Z", "2026-10-30T14:26:08.734Z", "2026-10-30T14:26:08.735Z", "2026-10-30T14:27:41.085Z", "2026-10-30T14:27:41.086Z"]) {
+      assert.deepEqual(ids(tick(model, now).model.agents), ids(server.reduce(EMPTY_SNAPSHOT, CAPTURE, now).agents), `à ${now}`);
+    }
+    assert.deepEqual(ids(tick(model, "2026-10-30T14:26:08.735Z").model.agents), ["toolu_011uY1fsUab3NjGKWBDc4j83"]);
+  });
+});
+
+describe("parité de la reprise d'agent (ADR 0008), sonde du vérificateur : LIVRÉ, puis reprise, puis BLOQUÉ", () => {
+  const snap = { ...EMPTY_SNAPSHOT, issues: [{ number: 7, title: "F7", state: "open", labels: ["status:in-progress"], status: "in-progress", retry: null, milestone: M1, milestoneNumber: 1 }] };
+  const probe = [
+    ev("agent.requested", 1, { toolUseId: "tu1", agentType: DEV, mode: "IMPLEMENTATION", issue: 7, attempt: 1 }),
+    ev("agent.launched", 2, { toolUseId: "tu1", agentId: "agent-abc" }),
+    ev("agent.started", 2.01, { agentId: "abc", agentType: DEV }),
+    ev("agent.reported", 3, { agentId: "abc", block: "RAPPORT_DEV", verdict: "LIVRÉ" }),
+    ev("agent.finished", 4, { agentId: "abc", source: "stop" }),
+    ev("agent.started", 5, { agentId: "abc", agentType: DEV }),
+    ev("agent.reported", 6, { agentId: "abc", block: "RAPPORT_DEV", verdict: "BLOQUÉ" }),
+    ev("agent.finished", 7, { agentId: "abc", source: "stop" }),
+    ev("agent.finished", 8, { agentId: "abc", source: "tool", toolUseId: "tu1" }),
+  ];
+
+  test("après chaque événement, le client et le serveur ont les mêmes agents", () => {
+    const model = replayAndCompare(probe, "sonde", snap);
+    const a = model.agents[0];
+    assert.deepEqual([a.phase, a.verdict, a.finishedAt, a.since], ["finished", "BLOQUÉ", at(7), at(1)]);
+  });
+
+  test("un agent repris puis silencieux passe en `unknown` à 45 min de son dernier signal, jamais purgé", () => {
+    const journal = probe.slice(0, 6); // reprise à 5 min, plus aucun signal
+    const model = replayAndCompare(journal, "sonde", snap);
+    for (const now of [at(5 + 10), at(5 + 44), at(5 + 45), at(5 + 120)]) {
+      assert.deepEqual(agentView(tick(model, now).model.agents), agentView(server.reduce(snap, journal, now).agents), `à ${now}`);
+    }
+    assert.equal(tick(model, at(5 + 45)).model.agents[0].phase, "unknown");
   });
 });

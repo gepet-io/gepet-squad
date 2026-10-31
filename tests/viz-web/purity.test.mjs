@@ -9,7 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { at, ev, stateOf, feature, agent } from "./support.mjs";
+import { at, ev, sse, stateOf, feature, agent } from "./support.mjs";
 
 const JS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../viz/public/js");
 const MODULES = ["state.js", "layout.js"];
@@ -94,11 +94,11 @@ describe("chargement et exécution dans Node", () => {
 
       let model = state.init(stateOf({ features: [feature(1, "ready"), feature(2, "in-progress")], agents: [agent("a", { issue: 2 })] }));
       for (const message of [
-        { event: "evt", data: ev("feature.status", 1, { issue: 1, status: "blocked" }) },
-        { event: "evt", data: ev("agent.requested", 2, { toolUseId: "t", agentType: "claude-gepet-squad:testeur", issue: 2 }) },
-        { event: "evt", data: ev("milestone.changed", 3, { ref: "1", status: "closed" }) },
-        { event: "warning", data: { code: "GH_AUTH", message: "m" } },
-        { event: "snapshot", data: stateOf({ features: [feature(3, "done")] }) },
+        sse("evt", ev("feature.status", 1, { issue: 1, status: "blocked" })),
+        sse("evt", ev("agent.requested", 2, { toolUseId: "t", agentType: "claude-gepet-squad:testeur", issue: 2 })),
+        sse("evt", ev("milestone.changed", 3, { ref: "1", status: "closed" })),
+        sse("warning", { code: "GH_AUTH", message: "m", at: at(1) }),
+        sse("snapshot", stateOf({ features: [feature(3, "done")] })),
       ]) {
         model = state.apply(model, message).model;
       }

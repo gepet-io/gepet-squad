@@ -19,10 +19,12 @@ export function ev(type, minutes, fields = {}) {
   return { v: 1, ts: at(minutes), src: "hook", type, sessionId: SESSION, ...fields };
 }
 
-// Messages SSE tels que les produira viz-server (#8).
-export const evt = (type, minutes, fields) => ({ event: "evt", data: ev(type, minutes, fields) });
-export const snapshotMsg = (state) => ({ event: "snapshot", data: state });
-export const warningMsg = (data) => ({ event: "warning", data });
+// Messages SSE tels que les produira viz-server (#8) : le nom de l'événement SSE, et une `data` qui est une chaîne JSON
+// (format strict de state.js : le client appelle `apply(model, { event: e.type, data: e.data })`).
+export const sse = (event, data) => ({ event, data: JSON.stringify(data) });
+export const evt = (type, minutes, fields) => sse("evt", ev(type, minutes, fields));
+export const snapshotMsg = (state) => sse("snapshot", state);
+export const warningMsg = (data) => sse("warning", data);
 
 // Feature au format `/state`, sans station (elle est calculée par `init`).
 export function feature(number, status, extra = {}) {
