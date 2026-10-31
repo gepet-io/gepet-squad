@@ -55,6 +55,8 @@ flowchart LR
 4. en repli, par `PostToolUse` sur `Agent` avec `status: "completed"`, pour les agents lancés en mode synchrone ;
 5. en dernier recours, par le recalage GitHub toutes les 60 s, qui corrige toute dérive.
 
+La capture réelle du 2026-10-30 confirme les points 1 et 2 en arrière-plan. Elle montre aussi qu'un agent repris par `SendMessage` enchaîne plusieurs cycles début → fin pour un même `agentId` : le cycle de vie n'est donc **pas monotone** ([ADR 0008](adr/0008-reprise-agent-cycle-non-monotone.md)).
+
 ## 3. Sous-projets
 
 La structure du plugin (`hooks/`, `skills/`, `agents/`, `scripts/`) est imposée par Claude Code : on ne crée donc pas de layout `apps/`. Les scopes ci-dessous sont à déclarer dans `.gepet-squad.json`.
@@ -204,8 +206,12 @@ Détail dans l'[ADR 0003](adr/0003-journal-evenements-et-etat-fusionne.md).
     - `type` est le nom court de l'agent (`developpeur`, sans le préfixe `claude-gepet-squad:`) ;
     - `id` est la clé de corrélation d'origine (`toolUseId`, sinon `agentId`). Il reste **stable** ensuite, et c'est lui qu'on utilise comme clé de rendu ;
     - `agentId` et `toolUseId` sont les identifiants connus, ou `null` ;
-    - `phase` vaut `requested`, `running`, `reported`, `finished` ou `unknown` ;
-    - `since` est le premier signal, `updatedAt` le dernier, et `finishedAt` la fin (agents `finished`, sinon `null`). Toutes les dates sont au format ISO ;
+    - `phase` vaut `requested`, `running`, `reported`, `finished` ou `unknown`. **Elle n'est pas monotone** : un agent repris par `SendMessage` repasse de `finished` à `running` ou à `reported` ([ADR 0008](adr/0008-reprise-agent-cycle-non-monotone.md)). Les événements `agent.*` sont appliqués dans l'ordre de leur `ts` :
+      - un `started`, `launched` ou `reported` postérieur à `finishedAt` rouvre un cycle : `finishedAt` repasse à `null`, et `block` et `verdict` sont remis à zéro ou remplacés ;
+      - un `finished` clôt le cycle en cours ;
+      - l'idempotence des fins ne vaut qu'au sein d'un même cycle ;
+    - `mode` et `station` d'un architecte repris sont déduits du `block` de son rapport : `QUESTIONS`, `PROPOSITION` et `PITCH` → `cadrage` ; `VERDICT_ROADMAP` → `roadmap` ; `ESCALADE` → `escalade` ;
+    - `since` est le premier signal du **premier** cycle, `updatedAt` le dernier signal, et `finishedAt` la fin du **dernier** cycle (`null` si un cycle est en cours). Toutes les dates sont au format ISO ;
     - `station` vaut `cadrage`, `roadmap`, `dev`, `verification`, `test`, `escalade` ou `null` ;
     - `verdict` et `block` reprennent ceux du rapport, ou `null`.
   - **`releases[]`** : les PR `release/*` de l'instantané, plus les `release.opened` postérieurs, triées par branche. `milestone` est le titre du milestone `M<k>` qui correspond à `release/m<k>-…`, ou `null`.
@@ -322,3 +328,4 @@ Le niveau retenu est celui d'un **outil local mono-utilisateur, en lecture seule
 - [0005 — Sécurité du serveur local](adr/0005-securite-serveur-local.md)
 - [0006 — Stratégie de tests](adr/0006-strategie-de-tests.md)
 - [0007 — Logique métier sur mesure (normalisation, réducteur, scène)](adr/0007-logique-metier-sur-mesure.md)
+- [0008 — Reprise d'un agent : cycle de vie non monotone](adr/0008-reprise-agent-cycle-non-monotone.md)
