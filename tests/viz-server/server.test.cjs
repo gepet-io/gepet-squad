@@ -575,10 +575,12 @@ describe("protections de l'ADR 0005 (intégration, sous-processus)", () => {
       assert.equal(res.status, 403, cible);
       assert.ok(!res.body.includes(marqueur), cible);
     }
-    // Avec des antislashs : une traversée sous Windows, un simple nom de fichier ailleurs. Jamais le fichier visé.
+    // Avec des antislashs : une traversée sous Windows (403). Ailleurs c'est un nom de fichier (404), ou 403 car la
+    // vérification du premier segment « .. » est volontairement stricte. Jamais le fichier visé, jamais 200.
     for (const cible of ["/..%5cgh-json%5cissues.json", "/js/..\\..\\gh-json\\issues.json"]) {
       const res = await get(cible);
-      assert.equal(res.status, process.platform === "win32" ? 403 : 404, cible);
+      if (process.platform === "win32") assert.equal(res.status, 403, cible);
+      else assert.ok([403, 404].includes(res.status), `${cible} -> ${res.status}`);
       assert.ok(!res.body.includes(marqueur), cible);
     }
   });
