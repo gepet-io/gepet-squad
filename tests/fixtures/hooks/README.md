@@ -22,8 +22,10 @@ Les marqueurs `SECRET_*_MARKER` placés dans les prompts, messages et contenus s
 
 | Point | État |
 |---|---|
-| `SubagentStart` et `SubagentStop` se déclenchent-ils pour un agent lancé **en arrière-plan** ? | **non confirmé.** La documentation les décrit sans exception, mais ne le dit pas explicitement. Aucune capture n'a pu être faite. |
-| Format de l'identifiant : `agentId` (`tool_response`) contre `agent_id` (`SubagentStart`, `SubagentStop`, `SubagentHandback`) | **non confirmé.** Les exemples de la doc se contredisent : `a4d2c8f1e0b3a297` (sans préfixe) pour `agentId`, `agent-abc123` pour `SubagentStart` et `def456` pour `SubagentStop`. Le nom de fichier du transcript est `agent-def456.jsonl`. `normalizeAgentId` retire donc le préfixe `agent-` éventuel, ce qui couvre les deux formes. |
+| `SubagentStart` et `SubagentStop` se déclenchent-ils pour un agent lancé **en arrière-plan** ? | **confirmé par capture (2026-10-30)** : oui, les cinq signaux arrivent pour un agent en arrière-plan (voir l'ADR 0004, « Constats de la capture réelle »). |
+| Format de l'identifiant : `agentId` (`tool_response`) contre `agent_id` (`SubagentStart`, `SubagentStop`, `SubagentHandback`) | **confirmé par capture (2026-10-30)** : les deux identifiants coïncident après normalisation (`a152ecd0174a7c035`, voir l'ADR 0004). Les exemples de la doc se contredisent (`a4d2c8f1e0b3a297`, `agent-abc123`, `def456`), d'où le maintien de `normalizeAgentId`, qui retire le préfixe `agent-` éventuel et couvre les deux formes. |
+
+La capture a produit un journal d'événements normalisés, versionné dans `tests/fixtures/journal/capture-reprise.jsonl` (14 lignes, rejouées par `tests/viz-server/reducer.test.cjs`). Le debug log ne contenant pas les payloads bruts, elle ne remplace aucune fixture de ce dossier : les fixtures `doc:` ci-dessus sont conservées, avec leur colonne « non confirmé par capture » (payloads bruts non capturés).
 
 ## Refaire une capture réelle
 
