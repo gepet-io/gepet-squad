@@ -895,3 +895,35 @@ describe("robustesse", () => {
     assert.deepEqual(diff(model, model), []);
   });
 });
+
+describe("préfixe des agents : nouveau (gepet-squad:) et ancien (claude-gepet-squad:)", () => {
+  const typeOf = (agentType) => apply(init(stateOf()), evt("agent.requested", 1, { toolUseId: "tp", agentType, issue: 5 })).model.agents[0].type;
+
+  for (const [agentType, expected] of [
+    ["gepet-squad:developpeur", "developpeur"],
+    ["claude-gepet-squad:developpeur", "developpeur"],
+    ["gepet-squad:architecte", "architecte"],
+    ["claude-gepet-squad:verificateur", "verificateur"],
+  ]) {
+    test(`${agentType} -> type court ${expected}`, () => {
+      assert.equal(typeOf(agentType), expected);
+    });
+  }
+
+  test("un autre plugin ou un préfixe approchant n'est pas réduit au nom court d'un agent de la squad", () => {
+    for (const agentType of ["autre-plugin:architecte", "claude-gepet-squad-evil:x", "gepet-squad-evil:developpeur"]) {
+      assert.equal(typeOf(agentType), agentType, agentType);
+    }
+  });
+
+  test("un journal qui mélange les deux préfixes corrèle le même agent", () => {
+    const { model } = run(init(stateOf()), [
+      evt("agent.requested", 1, { toolUseId: "tm", agentType: "gepet-squad:developpeur", mode: "IMPLEMENTATION", issue: 5, attempt: 1 }),
+      evt("agent.launched", 2, { toolUseId: "tm", agentId: "agent-mix" }),
+      evt("agent.started", 3, { agentId: "mix", agentType: "claude-gepet-squad:developpeur" }),
+    ]);
+    assert.equal(model.agents.length, 1);
+    assert.equal(model.agents[0].type, "developpeur");
+    assert.equal(model.agents[0].phase, "running");
+  });
+});

@@ -3,7 +3,7 @@ Statut : Acceptée — Date : 2026-10-30
 
 ## Contexte
 
-La visualisation 3D temps réel est une nouvelle brique du plugin `claude-gepet-squad`. Elle a trois responsabilités, qui ont des cycles de vie différents :
+La visualisation 3D temps réel est une nouvelle brique du plugin `gepet-squad`. Elle a trois responsabilités, qui ont des cycles de vie différents :
 - **collecter** des événements pendant la session Claude Code : c'est un hook, lancé à chaque appel d'outil concerné ;
 - **servir** un état à jour : c'est un processus long, démarré à la demande ;
 - **afficher** la scène 3D : ce sont des fichiers statiques chargés par le navigateur.

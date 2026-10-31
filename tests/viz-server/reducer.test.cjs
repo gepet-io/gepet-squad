@@ -1442,3 +1442,50 @@ describe("warnings[]", () => {
     assert.equal(a.agents[0].phase, "unknown");
   });
 });
+
+describe("préfixe des agents : nouveau (gepet-squad:) et ancien (claude-gepet-squad:)", () => {
+  const typeOf = (agentType) => reduce(snapshot([]), [ev("agent.requested", 1, { toolUseId: "tP", agentType, issue: 3 })], at(2)).agents[0].type;
+
+  for (const [agentType, expected] of [
+    ["gepet-squad:developpeur", "developpeur"],
+    ["claude-gepet-squad:developpeur", "developpeur"],
+    ["gepet-squad:architecte", "architecte"],
+    ["claude-gepet-squad:verificateur", "verificateur"],
+  ]) {
+    test(`${agentType} -> type court ${expected}`, () => {
+      assert.equal(typeOf(agentType), expected);
+    });
+  }
+
+  test("un autre plugin ou un préfixe approchant n'est pas réduit au nom court d'un agent de la squad", () => {
+    for (const agentType of ["autre-plugin:architecte", "claude-gepet-squad-evil:x", "gepet-squad-evil:developpeur"]) {
+      const type = typeOf(agentType);
+      assert.equal(type, agentType, agentType);
+      assert.ok(!["architecte", "developpeur", "verificateur", "testeur"].includes(type));
+    }
+  });
+
+  test("un agent d'un autre plugin ne prend pas la station d'un agent de la squad", () => {
+    const state = reduce(snapshot([]), [ev("agent.requested", 1, { toolUseId: "tX", agentType: "autre-plugin:developpeur", issue: 3 })], at(2));
+    assert.notEqual(state.agents[0].type, "developpeur");
+    assert.notEqual(state.agents[0].station, "dev");
+  });
+
+  test("les deux préfixes donnent le même agent, y compris dans un même journal", () => {
+    const mixed = [
+      ev("agent.requested", 1, { toolUseId: "tA", agentType: "gepet-squad:developpeur", mode: "IMPLEMENTATION", issue: 3, attempt: 1 }),
+      ev("agent.launched", 2, { toolUseId: "tA", agentId: "agent-aaa", agentType: "gepet-squad:developpeur" }),
+      ev("agent.started", 3, { agentId: "aaa", agentType: "claude-gepet-squad:developpeur" }),
+      ev("agent.finished", 4, { agentId: "aaa", source: "stop" }),
+    ];
+    const withPrefix = (prefix) => mixed.map((e) => (e.agentType ? { ...e, agentType: e.agentType.replace(/^(claude-)?gepet-squad:/, prefix) } : e));
+    const legacy = reduce(snapshot([]), withPrefix("claude-gepet-squad:"), at(5)).agents;
+    const modern = reduce(snapshot([]), withPrefix("gepet-squad:"), at(5)).agents;
+    const both = reduce(snapshot([]), mixed, at(5)).agents;
+    assert.equal(legacy.length, 1);
+    assert.deepEqual(modern, legacy);
+    assert.deepEqual(both, legacy);
+    assert.equal(legacy[0].type, "developpeur");
+    assert.equal(legacy[0].phase, "finished");
+  });
+});

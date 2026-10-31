@@ -75,7 +75,8 @@ export const AGENT_FINISHED_TTL_MS = 10 * 60 * 1000;
 export const AGENT_UNKNOWN_AFTER_MS = 45 * 60 * 1000;
 
 const SCHEMA_VERSION = 1;
-const AGENT_PREFIX = "claude-gepet-squad:";
+// Nouveau préfixe, puis l'ancien (avant le renommage du plugin) : les journaux existants restent lisibles.
+const AGENT_PREFIXES = ["gepet-squad:", "claude-gepet-squad:"];
 const SINGLE_PER_ISSUE = new Set(["developpeur", "verificateur", "testeur"]);
 const PHASE_ORDER = { requested: 0, running: 1, reported: 2, finished: 3 };
 const SSE_EVENTS = new Set(["evt", "snapshot", "warning"]);
@@ -143,7 +144,8 @@ function normalizeAgentId(id) {
 function shortType(agentType) {
   const s = str(agentType);
   if (s === null) return null;
-  return s.startsWith(AGENT_PREFIX) ? s.slice(AGENT_PREFIX.length) : s;
+  const prefix = AGENT_PREFIXES.find((p) => s.startsWith(p));
+  return prefix === undefined ? s : s.slice(prefix.length);
 }
 
 const byNumber = (a, b) => a.number - b.number;

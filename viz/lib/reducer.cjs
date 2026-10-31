@@ -24,7 +24,7 @@
 //   Une feature `blocked` porte `escalated: true` et, dans `station`, la station à laquelle la zone « escalade »
 //   est accolée : la dernière station connue par le journal (hors `blocked`), ou "dev" à défaut.
 // - `agents[]` : triés par `since`. `type` est le nom court de l'agent (`developpeur`, sans le préfixe
-//   `claude-gepet-squad:`). `id` est la clé de corrélation d'origine (`toolUseId`, sinon `agentId`) et ne change
+//   `gepet-squad:`, ou `claude-gepet-squad:` dans les anciens journaux). `id` est la clé de corrélation d'origine (`toolUseId`, sinon `agentId`) et ne change
 //   plus ensuite. `phase` : requested | running | reported | finished | unknown. `since` : premier signal ;
 //   `updatedAt` : dernier signal ; `finishedAt` : fin (agents `finished`), sinon `null`. Toutes les dates sont ISO.
 //   `station` : "cadrage" | "roadmap" | "dev" | "verification" | "test" | "escalade" ou `null`.
@@ -105,7 +105,8 @@ const AGENT_FINISHED_TTL_MS = 10 * 60 * 1000;
 const AGENT_UNKNOWN_AFTER_MS = 45 * 60 * 1000;
 const SNAPSHOT_STALE_AFTER_MS = 5 * 60 * 1000;
 
-const AGENT_PREFIX = "claude-gepet-squad:";
+// Nouveau préfixe, puis l'ancien (avant le renommage du plugin) : les journaux existants restent lisibles.
+const AGENT_PREFIXES = ["gepet-squad:", "claude-gepet-squad:"];
 // Agents rattachés à une issue, dont un seul peut être actif à la fois.
 const SINGLE_PER_ISSUE = new Set(["developpeur", "verificateur", "testeur"]);
 const PHASE_ORDER = { requested: 0, running: 1, reported: 2, finished: 3 };
@@ -167,7 +168,8 @@ function posInt(value) {
 function shortType(agentType) {
   const s = str(agentType);
   if (s === null) return null;
-  return s.startsWith(AGENT_PREFIX) ? s.slice(AGENT_PREFIX.length) : s;
+  const prefix = AGENT_PREFIXES.find((p) => s.startsWith(p));
+  return prefix === undefined ? s : s.slice(prefix.length);
 }
 
 function stationForStatus(status) {
