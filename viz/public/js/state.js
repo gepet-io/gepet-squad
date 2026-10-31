@@ -17,13 +17,30 @@
 // `lastStation` ({ [issue]: station }), la dernière station connue par les événements reçus, utilisée pour la station
 // d'accolement d'une feature `blocked`. Chaque agent porte en plus `sessionId` et `binding` (corrélation), propres au client.
 //
-// Message SSE : { event: "evt" | "snapshot" | "warning", data } (le champ `type` est accepté à la place de `event`,
-// et `data` peut être la chaîne JSON brute).
-//   - `snapshot` : `data` est un état `/state` complet, qui remplace le modèle ;
-//   - `evt`      : `data` est un événement v1 (hooks/lib/schema.cjs) ;
-//   - `warning`  : `data` est un avertissement { code, message, at? }, ou une liste de tels avertissements, ou
-//                  { warnings: [...] }.
-//   Tout autre message est ignoré sans effet. Aucune fonction de ce module ne lève d'exception.
+// Cycle de vie des agents (ADR 0008, mêmes règles que `viz/lib/reducer.cjs`) : un agent peut avoir plusieurs cycles
+// sous le même `agentId` (reprise par SendMessage). Un `started`, `launched` ou `reported` de `ts` strictement postérieur
+// au `finishedAt` rouvre un cycle (`finishedAt` revient à `null`, `block`/`verdict` repartent de `null` sur
+// `started`/`launched`) ; un `finished` clôt le cycle en cours, et un `finished` en double ne complète que `block` et
+// `verdict`. Le `mode` (donc la station) d'un architecte se déduit du `block` de son rapport. `id` et `since` restent
+// ceux du premier cycle. `tick` s'applique au dernier cycle : un agent réactivé n'est pas retiré.
+//
+// ---------------------------------------------------------------------------------------------------------
+// Format SSE (strict : contrat avec viz-server, #8)
+// ---------------------------------------------------------------------------------------------------------
+// L'événement SSE porte le nom `evt`, `snapshot` ou `warning`, et sa `data` est une chaîne JSON. Le client appelle :
+//
+//     source.addEventListener("evt", (e) => apply(model, { event: e.type, data: e.data }));
+//
+// (`e.type` est le nom de l'événement SSE, `e.data` la chaîne reçue, jamais déjà parsée).
+//   - `snapshot` : `data` est un état `/state` complet (objet JSON), qui remplace le modèle ;
+//   - `evt`      : `data` est un événement v1 (hooks/lib/schema.cjs), ou un tableau d'événements v1 (un lot, appliqué
+//                  trié par `ts`, comme le fait le réducteur serveur : ADR 0008) ;
+//   - `warning`  : `data` est exactement { code, message, at } (trois chaînes non vides, `at` est une date ISO).
+// Rien d'autre n'est accepté : ni l'alias `type` à la place de `event`, ni une `data` déjà parsée, ni une liste
+// d'avertissements. Un message qui n'est pas un objet ou qui n'a pas de nom `event`, une `data` qui n'est pas une chaîne,
+// un JSON invalide ou une forme inattendue sont ignorés, avec un avertissement `EVENT_ERROR` ajouté au modèle (le détail
+// brut du message n'y figure pas). Un nom d'événement SSE inconnu (autre que ces trois-là) est ignoré en silence.
+// Aucune fonction de ce module ne lève d'exception.
 //
 // Transitions { kind, id, from, to } :
 //   feature-add / feature-remove    id = numéro ; `to` / `from` = lieu ("cadrage".."release" ou "escalade")
@@ -57,9 +74,20 @@ const ATTACH_STATIONS = Object.freeze([...new Set(Object.values(STATUS_STATION))
 export const AGENT_FINISHED_TTL_MS = 10 * 60 * 1000;
 export const AGENT_UNKNOWN_AFTER_MS = 45 * 60 * 1000;
 
-const SCHEMA_VERSION = 1;const AGENT_PREFIX = "claude-gepet-squad:";
+const SCHEMA_VERSION = 1;
+const AGENT_PREFIX = "claude-gepet-squad:";
 const SINGLE_PER_ISSUE = new Set(["developpeur", "verificateur", "testeur"]);
 const PHASE_ORDER = { requested: 0, running: 1, reported: 2, finished: 3 };
+const SSE_EVENTS = new Set(["evt", "snapshot", "warning"]);
+// Bloc de rapport de l'architecte -> mode (ADR 0008, règle 4). Même table que le réducteur serveur.
+const BLOCK_MODE = Object.freeze({
+  QUESTIONS: "CADRAGE_QUESTIONS",
+  PROPOSITION: "CADRAGE_PROPOSITION",
+  PITCH: "CADRAGE_FINALISATION",
+  VERDICT_ROADMAP: "REVUE_ROADMAP",
+  ESCALADE: "ESCALADE",
+});
+const REOPENING_EVENTS = new Set(["agent.started", "agent.launched", "agent.reported"]);
 const PHASES = ["requested", "running", "reported", "finished", "unknown"];
 const MAX_WARNINGS = 50;
 const MAX_ID_LENGTH = 200;
@@ -413,6 +441,22 @@ function enrichAgent(model, a, ev) {
     a.issue = ev.issue;
     enforceSingle(model, a.issue, ev.t);
   }
+}
+
+// Reprise (ADR 0008, règle 1) : un signal de `ts` strictement postérieur à la fin ouvre un nouveau cycle. `id` et
+// `since` restent ceux du premier cycle ; `block` et `verdict` du cycle précédent ne sont plus affichés.
+function reopenAgent(a, ev) {
+  a.finishedAt = null;
+  a.phase = ev.type === "agent.reported" ? "reported" : "running";
+  a.verdict = null;
+  a.block = null;
+}
+
+// Le mode d'un architecte se déduit du bloc de son rapport (ADR 0008, règle 4), donc sa station.
+function deduceMode(a) {
+  if (a.type === "architecte" && a.block !== null && Object.prototype.hasOwnProperty.call(BLOCK_MODE, a.block)) {
+    a.mode = BLOCK_MODE[a.block];
+  }
   a.station = agentStation(a.type, a.mode);
 }
 
@@ -420,7 +464,10 @@ function applyAgentEvent(model, ev) {
   const a = locateAgent(model, ev);
   // Un agent passé en `unknown` par `tick` reprend vie dès qu'un signal arrive.
   if (a.phase === "unknown") a.phase = a.agentId === null ? "requested" : "running";
+  const finishedAt = toMs(a.finishedAt);
+  if (a.phase === "finished" && finishedAt !== null && ev.t > finishedAt && REOPENING_EVENTS.has(ev.type)) reopenAgent(a, ev);
   enrichAgent(model, a, ev);
+  deduceMode(a);
   if (isActive(a) && iso(ev.t) > a.updatedAt) a.updatedAt = iso(ev.t);
   switch (ev.type) {
     case "agent.launched":
@@ -591,11 +638,15 @@ function addWarnings(model, incoming) {
   if (model.warnings.length > MAX_WARNINGS) model.warnings.splice(0, model.warnings.length - MAX_WARNINGS);
 }
 
-function warningsOf(data) {
-  if (Array.isArray(data)) return data.map(normalizeWarning).filter(Boolean);
-  if (isObject(data) && Array.isArray(data.warnings)) return data.warnings.map(normalizeWarning).filter(Boolean);
-  const one = normalizeWarning(data);
-  return one ? [one] : [];
+// Avertissement SSE : exactement { code, message, at } (trois chaînes non vides, `at` est une date), sinon `null`.
+// Plus strict que `normalizeWarning`, qui lit l'état `/state` et tolère un `at` absent.
+function strictWarning(data) {
+  if (!isObject(data)) return null;
+  const code = str(data.code);
+  const message = str(data.message);
+  const at = str(data.at);
+  if (code === null || message === null || at === null || toMs(at) === null) return null;
+  return { code, message, at };
 }
 
 // --- Transitions -------------------------------------------------------------------------------------------------------
@@ -650,18 +701,17 @@ export function diff(before, after) {
 
 // --- Points d'entrée -----------------------------------------------------------------------------------------------------
 
+// Lit un message SSE strict : { kind, data } (data parsée), `null` (nom d'événement inconnu : ignoré en silence) ou
+// { error } (message mal formé : à signaler par EVENT_ERROR). Le détail brut du message n'entre jamais dans l'erreur.
 function readMessage(message) {
-  if (!isObject(message)) return null;
-  const kind = typeof message.event === "string" ? message.event : message.type;
-  let data = message.data;
-  if (typeof data === "string") {
-    try {
-      data = JSON.parse(data);
-    } catch {
-      return null;
-    }
+  if (!isObject(message) || typeof message.event !== "string") return { error: "message SSE sans nom d'événement `event`" };
+  if (!SSE_EVENTS.has(message.event)) return null;
+  if (typeof message.data !== "string") return { error: `message SSE "${message.event}" ignoré : data n'est pas une chaîne JSON` };
+  try {
+    return { kind: message.event, data: JSON.parse(message.data) };
+  } catch {
+    return { error: `message SSE "${message.event}" ignoré : data n'est pas du JSON valide` };
   }
-  return typeof kind === "string" ? { kind, data } : null;
 }
 
 function warn(model, code, message) {
@@ -670,43 +720,51 @@ function warn(model, code, message) {
   return next;
 }
 
-// Applique un message SSE. Renvoie toujours { model, transitions } : le même modèle et aucune transition si le
-// message est ignoré ou sans effet.
+const eventError = (model, text) => ({ model: warn(model, "EVENT_ERROR", text), transitions: [] });
+
+// Applique un message SSE (format strict : voir l'en-tête). Renvoie toujours { model, transitions } : le même modèle
+// et aucune transition si le message est ignoré en silence ou sans effet, un modèle qui porte un avertissement
+// (`EVENT_ERROR`, `EVENT_INCOMPLETE`) s'il est mal formé. Ne lève jamais d'exception.
 export function apply(model, message) {
   const unchanged = { model, transitions: [] };
   try {
     const msg = readMessage(message);
     if (msg === null) return unchanged;
+    if (msg.error) return eventError(model, msg.error);
 
     if (msg.kind === "snapshot") {
-      if (!isObject(msg.data)) return unchanged;
+      if (!isObject(msg.data)) return eventError(model, 'message SSE "snapshot" ignoré : data n\'est pas un objet /state');
       const next = init(msg.data);
       return { model: next, transitions: diff(model, next) };
     }
 
     if (msg.kind === "warning") {
-      const incoming = warningsOf(msg.data);
-      if (incoming.length === 0) return unchanged;
+      const incoming = strictWarning(msg.data);
+      if (incoming === null) return eventError(model, 'message SSE "warning" ignoré : data n\'a pas la forme { code, message, at }');
       const next = structuredClone(model);
-      addWarnings(next, incoming);
+      addWarnings(next, [incoming]);
       return { model: next, transitions: [] };
     }
 
-    if (msg.kind === "evt") {
-      const r = inspectEvent(msg.data);
-      if (r.kind === "unknown") return unchanged;
-      if (r.kind === "invalid") {
-        const text = `événement "${r.type}" ignoré : champ obligatoire manquant ou invalide (${r.fields.join(", ")})`;
-        return { model: warn(model, "EVENT_INCOMPLETE", text), transitions: [] };
-      }
-      const next = structuredClone(model);
-      applyEvent(next, r.event);
-      return { model: next, transitions: diff(model, next) };
+    // `evt` : un événement v1, ou un lot (tableau) appliqué trié par `ts`, à égalité dans l'ordre reçu (ADR 0008).
+    if (!isObject(msg.data) && !Array.isArray(msg.data)) return eventError(model, 'message SSE "evt" ignoré : data n\'est ni un événement ni un lot');
+    const valid = [];
+    const invalid = [];
+    (Array.isArray(msg.data) ? msg.data : [msg.data]).forEach((raw, index) => {
+      const r = inspectEvent(raw);
+      if (r.kind === "ok") valid.push({ ...r.event, i: index });
+      else if (r.kind === "invalid") invalid.push(r);
+    });
+    if (valid.length === 0 && invalid.length === 0) return unchanged;
+    const next = structuredClone(model);
+    valid.sort((x, y) => x.t - y.t || x.i - y.i);
+    for (const ev of valid) applyEvent(next, ev);
+    for (const r of invalid) {
+      addWarnings(next, [{ code: "EVENT_INCOMPLETE", message: `événement "${r.type}" ignoré : champ obligatoire manquant ou invalide (${r.fields.join(", ")})`, at: next.updatedAt }]);
     }
-
-    return unchanged;
+    return { model: next, transitions: diff(model, next) };
   } catch (error) {
-    return { model: warn(model, "EVENT_ERROR", `message ignoré : ${error && error.message}`), transitions: [] };
+    return eventError(model, `message ignoré : ${error && error.message}`);
   }
 }
 

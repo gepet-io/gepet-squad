@@ -16,6 +16,7 @@ import {
   at,
   ev,
   evt,
+  sse,
   snapshotMsg,
   warningMsg,
   feature,
@@ -159,50 +160,67 @@ describe("apply : snapshot", () => {
     ]);
   });
 
-  test("ignore un snapshot sans objet et renvoie le même modèle", () => {
-    const model = init(stateOf());
+  test("rejette un snapshot qui n'est pas un objet : modèle inchangé, sauf un avertissement EVENT_ERROR", () => {
+    const model = init(stateOf({ features: [feature(1, "ready")] }));
     for (const data of [null, 3, "pas du json", [1]]) {
       const r = apply(model, snapshotMsg(data));
-      assert.equal(r.model, model);
+      assert.deepEqual(r.model.features, model.features);
+      assert.deepEqual(r.model.warnings.map((w) => w.code), ["EVENT_ERROR"], JSON.stringify(data));
+      assert.match(r.model.warnings[0].message, /snapshot/);
       assert.deepEqual(r.transitions, []);
     }
   });
 });
 
 describe("apply : warning", () => {
-  test("ajoute un avertissement, une liste ou { warnings }, sans transition", () => {
+  test("ajoute l'avertissement { code, message, at }, sans transition, et sans modifier le modèle d'origine", () => {
     const model = init(stateOf());
     const one = apply(model, warningMsg({ code: "GH_TIMEOUT", message: "gh trop lent", at: at(1) }));
     assert.deepEqual(one.model.warnings, [{ code: "GH_TIMEOUT", message: "gh trop lent", at: at(1) }]);
     assert.deepEqual(one.transitions, []);
-
-    const many = apply(one.model, warningMsg([{ code: "GH_AUTH", message: "a" }, { code: "GH_PARSE", message: "b" }]));
-    assert.deepEqual(many.model.warnings.map((w) => w.code), ["GH_TIMEOUT", "GH_AUTH", "GH_PARSE"]);
-
-    const wrapped = apply(many.model, warningMsg({ warnings: [{ code: "GH_MISSING", message: "c" }] }));
-    assert.equal(wrapped.model.warnings.at(-1).code, "GH_MISSING");
-    assert.equal(model.warnings.length, 0, "le modèle d'origine n'est pas modifié");
+    const two = apply(one.model, warningMsg({ code: "GH_AUTH", message: "a", at: at(2), detail: "stderr brut" }));
+    assert.deepEqual(two.model.warnings.map((w) => w.code), ["GH_TIMEOUT", "GH_AUTH"]);
+    assert.deepEqual(Object.keys(two.model.warnings[1]), ["code", "message", "at"], "seuls code, message et at sont recopiés");
+    assert.equal(model.warnings.length, 0);
   });
 
   test("ne duplique pas un avertissement identique et borne la liste", () => {
     let model = init(stateOf());
-    for (let i = 0; i < 3; i++) model = apply(model, warningMsg({ code: "GH_AUTH", message: "même" })).model;
+    const w = (code, message) => warningMsg({ code, message, at: at(1) });
+    for (let i = 0; i < 3; i++) model = apply(model, w("GH_AUTH", "même")).model;
     assert.equal(model.warnings.length, 1);
-    for (let i = 0; i < 80; i++) model = apply(model, warningMsg({ code: "GH_PARSE", message: `m${i}` })).model;
+    for (let i = 0; i < 80; i++) model = apply(model, w("GH_PARSE", `m${i}`)).model;
     assert.equal(model.warnings.length, 50);
     assert.equal(model.warnings.at(-1).message, "m79");
   });
 
   test("un snapshot efface les avertissements (gh a récupéré)", () => {
-    const model = apply(init(stateOf()), warningMsg({ code: "GH_AUTH", message: "x" })).model;
+    const model = apply(init(stateOf()), warningMsg({ code: "GH_AUTH", message: "x", at: at(1) })).model;
     assert.equal(apply(model, snapshotMsg(stateOf())).model.warnings.length, 0);
   });
 
-  test("ignore un avertissement sans code ni message", () => {
-    const model = init(stateOf());
-    for (const data of [{}, { code: "X" }, 4, null, []]) {
+  test("rejette toute autre forme d'avertissement par EVENT_ERROR : liste, { warnings }, champ manquant ou vide, at invalide", () => {
+    const model = init(stateOf({ features: [feature(1, "ready")] }));
+    const ok = { code: "GH_AUTH", message: "m", at: at(1) };
+    const bad = [
+      [ok],
+      { warnings: [ok] },
+      { code: "GH_AUTH", message: "m" },
+      { code: "GH_AUTH", at: at(1) },
+      { message: "m", at: at(1) },
+      { ...ok, code: "  " },
+      { ...ok, message: 4 },
+      { ...ok, at: "pas une date" },
+      { ...ok, at: 12 },
+      {},
+      4,
+      null,
+    ];
+    for (const data of bad) {
       const r = apply(model, warningMsg(data));
-      assert.equal(r.model, model);
+      assert.deepEqual(r.model.warnings.map((w) => [w.code, w.message]), [["EVENT_ERROR", 'message SSE "warning" ignoré : data n\'a pas la forme { code, message, at }']], JSON.stringify(data));
+      assert.deepEqual(r.model.features, model.features);
+      assert.deepEqual(r.transitions, []);
     }
   });
 });
@@ -546,11 +564,132 @@ describe("apply : evt agents", () => {
     assert.deepEqual(r.model.agents.map((a) => [a.id, a.type]), [["a", "verificateur"], ["b", "testeur"]]);
   });
 
-  test("agent.reported ne fait pas reculer un agent déjà terminé", () => {
+  test("un agent.reported tardif (ts <= finishedAt) ne rouvre rien : il complète seulement le verdict manquant", () => {
     const model = run(init(stateOf()), [requested(1), evt("agent.finished", 2, { toolUseId: "tu1", agentId: "abc", source: "tool" })]).model;
-    const r = apply(model, evt("agent.reported", 3, { agentId: "abc", verdict: "PASS" }));
-    assert.equal(agentOf(r.model, "tu1").phase, "finished");
-    assert.equal(agentOf(r.model, "tu1").verdict, "PASS");
+    for (const minutes of [2, 1.5]) {
+      const r = apply(model, evt("agent.reported", minutes, { agentId: "abc", verdict: "PASS" }));
+      const a = agentOf(r.model, "tu1");
+      assert.deepEqual([a.phase, a.finishedAt, a.verdict], ["finished", at(2), "PASS"], `reported à ${minutes} min`);
+      assert.deepEqual(r.transitions, []);
+    }
+  });
+});
+
+describe("apply : reprise d'un agent (ADR 0008)", () => {
+  const DONE = { block: "RAPPORT_DEV", verdict: "LIVRÉ" };
+  // Premier cycle complet d'un développeur : LIVRÉ à 3 min, fin à 4 min.
+  const firstCycle = () =>
+    run(init(stateOf({ features: [feature(5, "in-progress")] })), [
+      evt("agent.requested", 1, { toolUseId: "tu1", agentType: DEV, mode: "IMPLEMENTATION", issue: 5, attempt: 1 }),
+      evt("agent.launched", 2, { toolUseId: "tu1", agentId: "abc" }),
+      evt("agent.reported", 3, { agentId: "abc", ...DONE }),
+      evt("agent.finished", 4, { agentId: "abc", source: "stop" }),
+    ]).model;
+
+  test("un started postérieur à la fin rouvre le cycle : finishedAt et verdict repartent de null, id et since restent", () => {
+    const finished = firstCycle();
+    assert.deepEqual([agentOf(finished, "tu1").phase, agentOf(finished, "tu1").verdict, agentOf(finished, "tu1").finishedAt], ["finished", "LIVRÉ", at(4)]);
+
+    const r = apply(finished, evt("agent.started", 5, { agentId: "abc", agentType: DEV }));
+    const a = agentOf(r.model, "tu1");
+    assert.deepEqual(
+      [a.id, a.since, a.phase, a.finishedAt, a.verdict, a.block, a.updatedAt, a.agentId],
+      ["tu1", at(1), "running", null, null, null, at(5), "abc"],
+    );
+    assert.equal(r.model.agents.length, 1);
+    assert.deepEqual(r.transitions, [{ kind: "agent-phase", id: "tu1", from: "finished", to: "running" }]);
+  });
+
+  test("un launched postérieur à la fin rouvre aussi le cycle", () => {
+    const r = apply(firstCycle(), evt("agent.launched", 5, { toolUseId: "tu1", agentId: "abc" }));
+    assert.deepEqual([agentOf(r.model, "tu1").phase, agentOf(r.model, "tu1").finishedAt, agentOf(r.model, "tu1").verdict], ["running", null, null]);
+  });
+
+  test("un reported postérieur à la fin rouvre le cycle directement en `reported`, avec son verdict", () => {
+    const r = apply(firstCycle(), evt("agent.reported", 5, { agentId: "abc", block: "RAPPORT_DEV", verdict: "BLOQUÉ" }));
+    const a = agentOf(r.model, "tu1");
+    assert.deepEqual([a.phase, a.finishedAt, a.verdict, a.block], ["reported", null, "BLOQUÉ", "RAPPORT_DEV"]);
+    assert.deepEqual(r.transitions, [{ kind: "agent-phase", id: "tu1", from: "finished", to: "reported" }]);
+  });
+
+  test("scénario de la sonde : LIVRÉ, puis reprise, puis BLOQUÉ", () => {
+    const r = run(firstCycle(), [
+      evt("agent.started", 5, { agentId: "abc", agentType: DEV }),
+      evt("agent.reported", 6, { agentId: "abc", block: "RAPPORT_DEV", verdict: "BLOQUÉ" }),
+      evt("agent.finished", 7, { agentId: "abc", source: "stop" }),
+    ]);
+    const a = agentOf(r.model, "tu1");
+    assert.deepEqual([a.phase, a.verdict, a.block, a.finishedAt, a.updatedAt, a.since], ["finished", "BLOQUÉ", "RAPPORT_DEV", at(7), at(7), at(1)]);
+    assert.deepEqual(r.all.filter((t) => t.kind === "agent-phase").map((t) => `${t.from}>${t.to}`), ["finished>running", "running>reported", "reported>finished"]);
+  });
+
+  test("clôture : un finished clôt le cycle rouvert ; un finished en double ne fait que compléter block et verdict", () => {
+    const reopened = apply(firstCycle(), evt("agent.started", 5, { agentId: "abc", agentType: DEV })).model;
+    const closed = apply(reopened, evt("agent.finished", 6, { agentId: "abc", source: "stop" })).model;
+    assert.deepEqual([agentOf(closed, "tu1").phase, agentOf(closed, "tu1").finishedAt, agentOf(closed, "tu1").verdict], ["finished", at(6), null]);
+
+    const dup = apply(closed, evt("agent.finished", 9, { agentId: "abc", source: "tool", verdict: "PASS", block: "RAPPORT_VERIF" }));
+    const a = agentOf(dup.model, "tu1");
+    assert.deepEqual([a.phase, a.finishedAt, a.updatedAt, a.verdict, a.block], ["finished", at(6), at(6), "PASS", "RAPPORT_VERIF"]);
+    assert.deepEqual(dup.transitions, []);
+
+    // Un finished en double ne remplace pas un verdict déjà présent.
+    const again = apply(dup.model, evt("agent.finished", 10, { agentId: "abc", source: "tool", verdict: "FAIL" }));
+    assert.equal(agentOf(again.model, "tu1").verdict, "PASS");
+  });
+
+  test("un signal de ts égal ou antérieur à la fin ne rouvre rien", () => {
+    const finished = firstCycle();
+    for (const minutes of [4, 3.5]) {
+      const r = apply(finished, evt("agent.started", minutes, { agentId: "abc", agentType: DEV }));
+      assert.deepEqual([agentOf(r.model, "tu1").phase, agentOf(r.model, "tu1").finishedAt], ["finished", at(4)], `started à ${minutes} min`);
+    }
+  });
+
+  test("le mode et la station d'un architecte se déduisent du block de son rapport", () => {
+    const base = run(init(stateOf()), [
+      evt("agent.requested", 1, { toolUseId: "ta", agentType: ARCHI, mode: "CADRAGE_QUESTIONS" }),
+      evt("agent.started", 1.1, { agentId: "arch", agentType: ARCHI }),
+      evt("agent.reported", 2, { agentId: "arch", agentType: ARCHI, block: "QUESTIONS" }),
+      evt("agent.finished", 3, { agentId: "arch", source: "stop" }),
+    ]).model;
+    assert.deepEqual([agentOf(base, "ta").mode, agentOf(base, "ta").station], ["CADRAGE_QUESTIONS", "cadrage"]);
+
+    const blocks = [["PROPOSITION", "CADRAGE_PROPOSITION", "cadrage"], ["PITCH", "CADRAGE_FINALISATION", "cadrage"], ["VERDICT_ROADMAP", "REVUE_ROADMAP", "roadmap"], ["ESCALADE", "ESCALADE", "escalade"]];
+    for (const [block, mode, station] of blocks) {
+      const r = apply(base, evt("agent.reported", 5, { agentId: "arch", agentType: ARCHI, block }));
+      const a = agentOf(r.model, "ta");
+      assert.deepEqual([a.phase, a.mode, a.station, a.block], ["reported", mode, station, block], block);
+    }
+    // Un bloc RAPPORT_* ne change ni le mode ni la station des autres agents.
+    const dev = firstCycle();
+    assert.deepEqual([agentOf(dev, "tu1").mode, agentOf(dev, "tu1").station], ["IMPLEMENTATION", "dev"]);
+  });
+
+  test("un lot d'événements est appliqué trié par ts, quel que soit l'ordre de réception", () => {
+    const batch = [
+      ev("agent.finished", 7, { agentId: "abc", source: "stop" }),
+      ev("agent.reported", 3, { agentId: "abc", ...DONE }),
+      ev("agent.launched", 2, { toolUseId: "tu1", agentId: "abc" }),
+      ev("agent.finished", 4, { agentId: "abc", source: "stop" }),
+      ev("agent.started", 5, { agentId: "abc", agentType: DEV }),
+      ev("agent.requested", 1, { toolUseId: "tu1", agentType: DEV, mode: "IMPLEMENTATION", issue: 5, attempt: 1 }),
+      ev("agent.reported", 6, { agentId: "abc", block: "RAPPORT_DEV", verdict: "BLOQUÉ" }),
+    ];
+    const start = init(stateOf({ features: [feature(5, "in-progress")] }));
+    const shuffled = apply(start, sse("evt", batch)).model;
+    const ordered = apply(start, sse("evt", [...batch].sort((x, y) => x.ts.localeCompare(y.ts)))).model;
+    assert.deepEqual(shuffled, ordered);
+    const a = agentOf(shuffled, "tu1");
+    assert.deepEqual([a.phase, a.verdict, a.finishedAt, a.since], ["finished", "BLOQUÉ", at(7), at(1)]);
+    assert.equal(shuffled.updatedAt, at(7));
+  });
+
+  test("à ts égal, l'ordre reçu est conservé, et les événements invalides d'un lot sont signalés sans bloquer les autres", () => {
+    const r = apply(init(stateOf()), sse("evt", [ev("agent.started", 1, { agentId: "x", agentType: DEV }), ev("agent.finished", 1, { agentId: "x", source: "stop" }), { v: 1, type: "agent.finished" }]));
+    assert.equal(agentOf(r.model, "x").phase, "finished");
+    assert.deepEqual(r.model.warnings.map((w) => w.code), ["EVENT_INCOMPLETE"]);
+    assert.equal(apply(init(stateOf()), sse("evt", [])).model.agents.length, 0);
   });
 });
 
@@ -585,6 +724,31 @@ describe("tick(model, now) : horloge des agents", () => {
     assert.deepEqual(r.transitions, [{ kind: "agent-remove", id: "tu1", from: "dev", to: null }]);
   });
 
+  test("un agent réactivé n'est pas retiré, et l'horloge repart de son dernier cycle (ADR 0008)", () => {
+    // Fin à 5 min, reprise à 8 min, nouvelle fin à 20 min.
+    const model = run(base(), [
+      evt("agent.finished", 5, { agentId: "abc", source: "stop" }),
+      evt("agent.started", 8, { agentId: "abc", agentType: DEV }),
+    ]).model;
+    const firstFinish = Date.parse(at(5));
+
+    // Plus de 10 min après la première fin : l'agent travaille, il reste.
+    const stillThere = tick(model, firstFinish + AGENT_FINISHED_TTL_MS + 60 * 1000);
+    assert.equal(stillThere.model, model);
+    assert.equal(agentOf(stillThere.model, "tu1").phase, "running");
+
+    // Silencieux depuis 45 min après son dernier signal (8 min) : `unknown`, pas retiré.
+    const unknown = tick(model, Date.parse(at(8)) + AGENT_UNKNOWN_AFTER_MS);
+    assert.equal(agentOf(unknown.model, "tu1").phase, "unknown");
+    assert.deepEqual(unknown.transitions, [{ kind: "agent-phase", id: "tu1", from: "running", to: "unknown" }]);
+
+    // Une fois le dernier cycle clos, la purge compte 10 min depuis la dernière fin.
+    const closed = apply(model, evt("agent.finished", 20, { agentId: "abc", source: "stop" })).model;
+    const lastFinish = Date.parse(at(20));
+    assert.equal(tick(closed, lastFinish + AGENT_FINISHED_TTL_MS - 1).model, closed);
+    assert.deepEqual(tick(closed, lastFinish + AGENT_FINISHED_TTL_MS).model.agents, []);
+  });
+
   test("accepte une Date ou une chaîne ISO, et ignore une horloge invalide", () => {
     const model = base();
     assert.equal(tick(model, new Date(T(AGENT_UNKNOWN_AFTER_MS))).transitions.length, 1);
@@ -601,7 +765,7 @@ describe("robustesse", () => {
   test("ignore les types inconnus et les versions futures en silence", () => {
     const model = init(stateOf({ features: [feature(1, "ready")] }));
     for (const data of [ev("feature.inconnu", 1, { issue: 1 }), { ...ev("feature.status", 1, { issue: 1, status: "done" }), v: 2 }]) {
-      const r = apply(model, { event: "evt", data });
+      const r = apply(model, sse("evt", data));
       assert.equal(r.model, model);
       assert.deepEqual(r.transitions, []);
     }
@@ -620,26 +784,87 @@ describe("robustesse", () => {
 
     const noSource = apply(model, evt("agent.finished", 1, { agentId: "a" }));
     assert.match(noSource.model.warnings[0].message, /source/);
-    const noTs = apply(model, { event: "evt", data: { v: 1, type: "feature.status", issue: 1, status: "done" } });
+    const noTs = apply(model, sse("evt", { v: 1, type: "feature.status", issue: 1, status: "done" }));
     assert.match(noTs.model.warnings[0].message, /\(ts\)/);
   });
 
-  test("accepte `type` à la place de `event`, et des données en JSON brut", () => {
-    const model = init(stateOf({ features: [feature(1, "ready")] }));
+  describe("format SSE strict", () => {
     const data = ev("feature.status", 1, { issue: 1, status: "in-progress" });
-    assert.equal(featureOf(apply(model, { type: "evt", data }).model, 1).station, "dev");
-    assert.equal(featureOf(apply(model, { event: "evt", data: JSON.stringify(data) }).model, 1).station, "dev");
-    assert.equal(apply(model, { event: "snapshot", data: JSON.stringify(stateOf()) }).model.features.length, 0);
-  });
+    const model = init(stateOf({ features: [feature(1, "ready")] }));
+    const errorsOf = (r) => r.model.warnings.map((w) => w.code);
 
-  test("ignore sans exception tout message mal formé", () => {
-    const model = init(stateOf());
-    const garbage = [undefined, null, 42, "x", [], {}, { event: "evt" }, { event: "evt", data: "pas du json" }, { event: "evt", data: 7 }, { event: "autre", data: {} }, { event: 3, data: {} }];
-    for (const message of garbage) {
-      const r = apply(model, message);
-      assert.ok(Array.isArray(r.transitions), String(message));
+    test("accepte { event, data: chaîne JSON } pour evt, snapshot et warning", () => {
+      assert.equal(featureOf(apply(model, { event: "evt", data: JSON.stringify(data) }).model, 1).station, "dev");
+      assert.equal(apply(model, { event: "snapshot", data: JSON.stringify(stateOf()) }).model.features.length, 0);
+      assert.equal(apply(model, { event: "warning", data: JSON.stringify({ code: "GH_AUTH", message: "m", at: at(1) }) }).model.warnings.length, 1);
+    });
+
+    test("l'alias `type` à la place de `event` est supprimé : message rejeté par EVENT_ERROR, sans effet sur les features", () => {
+      const r = apply(model, { type: "evt", data: JSON.stringify(data) });
+      assert.deepEqual(errorsOf(r), ["EVENT_ERROR"]);
+      assert.match(r.model.warnings[0].message, /`event`/);
+      assert.equal(featureOf(r.model, 1).station, "roadmap");
       assert.deepEqual(r.transitions, []);
-    }
+      // Même avec les deux champs, seul `event` compte.
+      assert.equal(featureOf(apply(model, { event: "snapshot", type: "evt", data: JSON.stringify(stateOf()) }).model, 1), undefined);
+    });
+
+    test("une data qui n'est pas une chaîne (objet déjà parsé, nombre, null, absente) est rejetée par EVENT_ERROR", () => {
+      for (const name of ["evt", "snapshot", "warning"]) {
+        for (const bad of [data, 7, null, undefined, true, ["x"]]) {
+          const r = apply(model, { event: name, data: bad });
+          assert.deepEqual(errorsOf(r), ["EVENT_ERROR"], `${name} / ${JSON.stringify(bad)}`);
+          assert.match(r.model.warnings[0].message, /chaîne JSON/);
+          assert.deepEqual(r.model.features, model.features);
+          assert.deepEqual(r.transitions, []);
+        }
+      }
+    });
+
+    test("un JSON invalide est ignoré avec EVENT_ERROR, sans exception ni effet", () => {
+      for (const name of ["evt", "snapshot", "warning"]) {
+        for (const bad of ["pas du json", "{", "", "{'a':1}", "undefined"]) {
+          let r;
+          assert.doesNotThrow(() => (r = apply(model, { event: name, data: bad })));
+          assert.deepEqual(errorsOf(r), ["EVENT_ERROR"], `${name} / ${bad}`);
+          assert.match(r.model.warnings[0].message, /JSON valide/);
+          assert.deepEqual(r.model.features, model.features);
+        }
+      }
+    });
+
+    test("un JSON valide d'une forme inattendue est rejeté par EVENT_ERROR", () => {
+      for (const json of ["7", "null", '"texte"', "true"]) {
+        assert.deepEqual(errorsOf(apply(model, { event: "evt", data: json })), ["EVENT_ERROR"], `evt ${json}`);
+        assert.deepEqual(errorsOf(apply(model, { event: "snapshot", data: json })), ["EVENT_ERROR"], `snapshot ${json}`);
+      }
+      assert.deepEqual(errorsOf(apply(model, { event: "snapshot", data: "[]" })), ["EVENT_ERROR"]);
+    });
+
+    test("un message qui n'est pas un objet est rejeté par EVENT_ERROR ; un nom d'événement SSE inconnu est ignoré en silence", () => {
+      for (const message of [undefined, null, 42, "x", [], {}, { data: "{}" }, { event: 3, data: "{}" }]) {
+        const r = apply(model, message);
+        assert.deepEqual(errorsOf(r), ["EVENT_ERROR"], JSON.stringify(message));
+        assert.deepEqual(r.transitions, []);
+      }
+      for (const event of ["ping", "open", "EVT", "message", ""]) {
+        const r = apply(model, { event, data: JSON.stringify(data) });
+        assert.equal(r.model, model, event);
+        assert.deepEqual(r.transitions, []);
+      }
+    });
+
+    test("le message d'erreur ne recopie pas le contenu brut du message", () => {
+      const r = apply(model, { event: "evt", data: "secret-token-xyz" });
+      assert.doesNotMatch(r.model.warnings[0].message, /secret-token-xyz/);
+    });
+
+    test("la convention de l'en-tête est documentée : evt|snapshot|warning et apply(model, {event: e.type, data: e.data})", async () => {
+      const { readFile } = await import("node:fs/promises");
+      const source = await readFile(new URL("../../viz/public/js/state.js", import.meta.url), "utf8");
+      assert.match(source, /`evt`, `snapshot` ou `warning`/);
+      assert.match(source, /apply\(model, \{ event: e\.type, data: e\.data \}\)/);
+    });
   });
 
   test("n'a aucun effet de bord sur un modèle gelé, ni sur le message", () => {
