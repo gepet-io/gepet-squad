@@ -491,10 +491,10 @@ describe("GET /events : recalage GitHub", () => {
     assert.deepEqual(current.features, featuresBefore, "le dernier instantané est conservé");
     assert.ok(current.warnings.some((w) => w.code === "GH_AUTH"), "/state porte aussi l'avertissement");
     // Un instantané en cours au moment du changement a pu précéder le premier avertissement, aucun ne le suit.
-    await new Promise((resolve) => setTimeout(resolve, 350));
+    // Un avertissement par échec : on attend le deuxième (la durée d'un appel gh dépend de la machine).
+    await client.waitFor((events) => names(events).filter((n) => n === "warning").length >= 2, 8000);
     const firstWarning = names(client.events).indexOf("warning");
     assert.ok(!names(client.events).slice(firstWarning).includes("snapshot"), "aucun instantané tant que gh échoue");
-    assert.ok(names(client.events).slice(firstWarning).filter((n) => n === "warning").length >= 2, "un avertissement par échec");
   });
 
   test("gh revient : un instantané est poussé et l'avertissement disparaît de l'état", async () => {
@@ -535,11 +535,11 @@ describe("GET /events : recalage GitHub", () => {
     const callsBefore = fakeGh.calls().length;
     await runServer({ repo, snapshotIntervalMs: 10 });
     const startupCalls = fakeGh.calls().length - callsBefore;
-    await new Promise((resolve) => setTimeout(resolve, 1200));
+    await new Promise((resolve) => setTimeout(resolve, 1500));
     const recalibrations = (fakeGh.calls().length - callsBefore - startupCalls) / 5; // 5 appels gh par instantané
-    // Chaque instantané dure au moins 200 ms : au plus 6 en 1,2 s. Avec un minuteur qui se chevauche (période de
+    // Chaque instantané dure au moins 200 ms : au plus 7 en 1,5 s. Avec un minuteur qui se chevauche (période de
     // 10 ms), on en aurait une centaine.
-    assert.ok(recalibrations <= 7, `${recalibrations} recalages en 1,2 s`);
+    assert.ok(recalibrations <= 8, `${recalibrations} recalages en 1,5 s`);
     assert.ok(recalibrations >= 1);
   });
 });
