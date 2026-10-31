@@ -1,0 +1,4 @@
+gh pr merge <pr> --repo <REPO> --squash --delete-branch
+gh issue close <n> --repo <REPO> --comment "Mergée sur develop via #<pr>"
+gh issue edit <n> --repo <REPO> --remove-label status:<ancien> --add-label status:<nouveau>
+gh api -X PATCH repos/<REPO>/milestones/<num> -f state=closed

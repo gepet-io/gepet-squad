@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "repo": "gepets/claude-gepet-squad",
+  "layout": "monorepo",
+  "scopes": {
+    "repo": {
+      "path": "."
+    },
+    "hooks": {
+      "path": "hooks"
+    },
+    "viz-server": {
+      "path": "viz"
+    },
+    "viz-web": {
+      "path": "viz/public"
+    },
+    "skills": {
+      "path": "skills/gepet-squad-viz"
+    }
+  },
+  "branches": {
+    "integration": "develop",
+    "production": "main"
+  },
+  "maxParallelDevs": 3,
+  "maxRetries": 3
+}

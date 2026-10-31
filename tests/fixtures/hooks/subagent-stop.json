@@ -1,0 +1,16 @@
+{
+  "_provenance": "doc:https://code.claude.com/docs/en/hooks",
+  "_note": "(SubagentStop : stop_hook_active, agent_id, agent_type, agent_transcript_path, last_assistant_message, background_tasks, session_crons) ; valeurs anonymisées, agent_id au format de l'exemple de la doc (sans préfixe)",
+  "session_id": "5f3c1a9e-7b2d-4c6e-9a41-0d8e2b7f6c13",
+  "transcript_path": "/home/user/.claude/projects/-home-user-demo-todo/5f3c1a9e-7b2d-4c6e-9a41-0d8e2b7f6c13.jsonl",
+  "cwd": "/home/user/demo-todo",
+  "permission_mode": "default",
+  "hook_event_name": "SubagentStop",
+  "stop_hook_active": false,
+  "agent_id": "a4d2c8f1e0b3a297",
+  "agent_type": "claude-gepet-squad:developpeur",
+  "agent_transcript_path": "/home/user/.claude/projects/-home-user-demo-todo/5f3c1a9e-7b2d-4c6e-9a41-0d8e2b7f6c13/subagents/agent-a4d2c8f1e0b3a297.jsonl",
+  "last_assistant_message": "RAPPORT_DEV\nStatut: LIVRÉ\nIssue: #7 — PR: #12 — Branche: feature/7-ajouter-une-tache\nSECRET_LAST_MESSAGE_MARKER",
+  "background_tasks": [],
+  "session_crons": []
+}

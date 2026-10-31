@@ -1,0 +1,25 @@
+{
+  "_provenance": "doc:https://code.claude.com/docs/en/hooks",
+  "_note": "(PostToolUse, tool_response d'un agent en arrière-plan : status, agentId, description, prompt, outputFile, resolvedModel) ; valeurs anonymisées",
+  "session_id": "5f3c1a9e-7b2d-4c6e-9a41-0d8e2b7f6c13",
+  "transcript_path": "/home/user/.claude/projects/-home-user-demo-todo/5f3c1a9e-7b2d-4c6e-9a41-0d8e2b7f6c13.jsonl",
+  "cwd": "/home/user/demo-todo",
+  "permission_mode": "default",
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Agent",
+  "tool_input": {
+    "description": "Implémenter la feature 7",
+    "subagent_type": "claude-gepet-squad:developpeur",
+    "prompt": "MODE: IMPLEMENTATION\nREFERENCES: /home/user/.claude/plugins/claude-gepet-squad/skills/gepet-squad/references/\nREPO: acme/demo-todo\nISSUE: 7 — SOUS_PROJET: api (api)\nBRANCHE: feature/7-ajouter-une-tache\nNotes : implémente uniquement le périmètre de la feature. SECRET_PROMPT_MARKER"
+  },
+  "tool_response": {
+    "status": "async_launched",
+    "agentId": "a4d2c8f1e0b3a297",
+    "description": "Implémenter la feature 7",
+    "prompt": "MODE: IMPLEMENTATION\nREFERENCES: /home/user/.claude/plugins/claude-gepet-squad/skills/gepet-squad/references/\nREPO: acme/demo-todo\nISSUE: 7 — SOUS_PROJET: api (api)\nBRANCHE: feature/7-ajouter-une-tache\nNotes : implémente uniquement le périmètre de la feature. SECRET_PROMPT_MARKER",
+    "outputFile": "/tmp/claude-1000/-home-user-demo-todo/5f3c1a9e-7b2d-4c6e-9a41-0d8e2b7f6c13/tasks/a4d2c8f1e0b3a297.output",
+    "resolvedModel": "claude-sonnet-4-5"
+  },
+  "tool_use_id": "toolu_01Aq8Zp3Xv5Rk2Nm7Ls9Wd4T",
+  "duration_ms": 214
+}
