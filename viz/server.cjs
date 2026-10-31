@@ -5,9 +5,16 @@
 //   node viz/server.cjs --project <dir> [--port 0] [--public-dir <dir>]
 //
 // - écoute sur 127.0.0.1 uniquement (port 0 = choix automatique) ;
-// - sert `GET /health`, `GET /state` et les fichiers de `--public-dir` (défaut : viz/public) ;
+// - sert `GET /health`, `GET /state`, `GET /events` (SSE) et les fichiers de `--public-dir` (défaut : viz/public) ;
 // - écrit `<git-common-dir>/gepet-squad/viz.lock` (`{port, pid}`), supprimé à l'arrêt (SIGINT, SIGTERM) ;
-// - l'état de `/state` fusionne l'instantané GitHub (pris au démarrage) et le journal (lu en entier au démarrage).
+// - l'état de `/state` fusionne l'instantané GitHub et le journal (lu en entier au démarrage, puis suivi par offset).
+//
+// Flux `GET /events` (ADR 0002 et 0003). Trois noms d'événements, `data` est toujours une chaîne JSON :
+//   - `evt`      : un événement v1 du journal, avec `id: <génération>:<offset>` ;
+//   - `snapshot` : l'état `/state` complet (recalage toutes les 60 s, ou reprise impossible), avec `id` ;
+//   - `warning`  : `{ code, message, at }` quand le recalage GitHub échoue (le dernier instantané est conservé).
+// Un battement (commentaire) part toutes les 15 s. Reprise : `Last-Event-ID` de la génération courante -> les
+// événements postérieurs ; inconnu ou d'une autre génération -> `snapshot`, puis le flux.
 //
 // Le journal et le fichier de verrou sont dans le dossier commun de git, comme pour le collecteur : la résolution
 // vient de hooks/lib/journal.cjs. Journaux du serveur sur stderr : `[gepet-squad-viz] niveau message`.
@@ -22,13 +29,21 @@ const path = require("path");
 const { parseArgs } = require("util");
 
 const { findSquadRoot, journalPaths, resolveCommonDir } = require("../hooks/lib/journal.cjs");
-const { isPlainObject } = require("../hooks/lib/schema.cjs");
+const { isPlainObject, validate } = require("../hooks/lib/schema.cjs");
 const { fetchSnapshot, GhError } = require("./lib/github.cjs");
 const { reduce } = require("./lib/reducer.cjs");
-const { importmapHash, buildCsp, createRequestListener } = require("./lib/http.cjs");
+const {
+  importmapHash,
+  buildCsp,
+  createRequestListener,
+  createSseHub,
+  formatSse,
+} = require("./lib/http.cjs");
+const { createTail, formatEventId, planResume } = require("./lib/tail.cjs");
 
 const HOST = "127.0.0.1";
 const LOCK_NAME = "viz.lock";
+const SNAPSHOT_INTERVAL_MS = 60000;
 const DEFAULT_PUBLIC_DIR = path.join(__dirname, "public");
 const GH_CODE = /^GH_[A-Z]+$/;
 
@@ -211,23 +226,23 @@ function readIfExists(file) {
   }
 }
 
-/** Journal complet : l'ancien fichier (rotation) puis le courant. Un fichier illisible est signalé et ignoré. */
-function loadJournal(paths) {
-  const events = [];
-  let skipped = 0;
-  for (const file of [paths.rotated, paths.events]) {
-    let text = "";
-    try {
-      text = readIfExists(file);
-    } catch (error) {
-      log("warn", `journal illisible (${error && error.code ? error.code : "erreur"}) : ${file}`);
-    }
-    const result = parseJournal(text);
-    events.push(...result.events);
-    skipped += result.skipped;
+/**
+ * Événements de l'ancien fichier du journal (rotation, `events.1.jsonl`), lus une fois au démarrage. Le fichier
+ * courant est lu et suivi par `createTail`. Une ligne qui ne passe pas `validate()` est ignorée, comme dans le suivi.
+ * Un fichier illisible est signalé et ignoré.
+ */
+function loadRotatedJournal(file) {
+  let text = "";
+  try {
+    text = readIfExists(file);
+  } catch (error) {
+    log("warn", `journal illisible (${error && error.code ? error.code : "erreur"}) : ${file}`);
   }
-  if (skipped > 0) log("warn", `${skipped} ligne(s) du journal ignorée(s) (JSON invalide)`);
-  return events;
+  const { events, skipped } = parseJournal(text);
+  const valid = events.filter((event) => validate(event).valid);
+  const ignored = skipped + (events.length - valid.length);
+  if (ignored > 0) log("warn", `${ignored} ligne(s) du journal ignorée(s) : ${file}`);
+  return valid;
 }
 
 /** CSP de la page : empreinte de l'importmap de `index.html`, ou aucune empreinte s'il n'y en a pas. */
@@ -253,11 +268,26 @@ function listen(server, port) {
 
 /**
  * Démarre le serveur. Aucun signal ni `process.exit` ici : voir `main`.
- * @param {{ project: string, port: number, publicDir: string }} options
- * @returns {Promise<{ port: number, url: string, lockFile: string, getState: () => object, close: () => Promise<void> }>}
+ * @param {object} options
+ * @param {string} options.project dossier du projet gepet-squad
+ * @param {number} options.port port d'écoute (0 = automatique)
+ * @param {string} options.publicDir fichiers statiques
+ * @param {number} [options.snapshotIntervalMs] période du recalage GitHub (60 000 ms) ; injectable pour les tests
+ * @param {number} [options.pollIntervalMs] période du suivi du journal (500 ms)
+ * @param {number} [options.heartbeatMs] période du battement SSE (15 000 ms)
+ * @param {number} [options.generation] génération initiale du journal (l'horloge : voir tail.cjs)
+ * @returns {Promise<{ port: number, url: string, lockFile: string, getState: () => object, clientCount: () => number, close: () => Promise<void> }>}
  * @throws {StartupError}
  */
-async function startServer({ project, port, publicDir }) {
+async function startServer({
+  project,
+  port,
+  publicDir,
+  snapshotIntervalMs = SNAPSHOT_INTERVAL_MS,
+  pollIntervalMs,
+  heartbeatMs,
+  generation = Date.now(),
+}) {
   const root = findSquadRoot(project);
   if (root === null) {
     throw new StartupError(
@@ -274,41 +304,116 @@ async function startServer({ project, port, publicDir }) {
   const lockFile = path.join(paths.dir, LOCK_NAME);
   assertNoLiveServer(lockFile);
 
-  const events = loadJournal(paths);
+  const events = loadRotatedJournal(paths.rotated);
   const csp = loadCsp(publicDir);
 
   // Instantané GitHub : en cas d'échec, on sert quand même l'état du journal seul, avec un avertissement.
   let snapshot = null;
-  const warnings = [];
+  let warnings = [];
+  const recordFailure = (error) => {
+    const warning = warningFromError(error, new Date().toISOString());
+    log("warn", `instantané GitHub indisponible : ${warning.code} ${warning.message}`);
+    if (error instanceof GhError && error.detail) log("warn", `détail gh : ${error.detail}`);
+    return warning;
+  };
   try {
     snapshot = await fetchSnapshot({ cwd: root });
   } catch (error) {
-    const warning = warningFromError(error, new Date().toISOString());
-    warnings.push(warning);
-    log("warn", `instantané GitHub indisponible : ${warning.code} ${warning.message}`);
-    if (error instanceof GhError && error.detail) log("warn", `détail gh : ${error.detail}`);
+    warnings = [recordFailure(error)];
   }
 
-  let actualPort = 0;
   const getState = () => reduce(snapshot, events, new Date(), { warnings });
+  const hub = createSseHub({ csp, heartbeatMs, log });
+
+  // Suivi du journal. `replay` : messages `evt` de la génération courante, pour la reprise par Last-Event-ID.
+  let replay = [];
+  const tail = createTail({
+    file: paths.events,
+    rotatedFile: paths.rotated,
+    intervalMs: pollIntervalMs,
+    generation,
+    onEvent({ event, generation: gen, offset }) {
+      events.push(event);
+      const message = formatSse({ event: "evt", id: formatEventId(gen, offset), data: event });
+      replay.push({ offset, message });
+      hub.broadcast(message);
+    },
+    onRotate(newGeneration) {
+      replay = [];
+      log("info", `journal recréé (rotation) : génération ${newGeneration}`);
+    },
+    onSkip: (count) => log("warn", `${count} ligne(s) du journal ignorée(s) (JSON ou schéma invalide)`),
+    onError: (error) => log("warn", `suivi du journal : ${error && error.code ? error.code : "erreur"}`),
+  });
+  tail.start();
+
+  // Message `snapshot` : l'identifiant est la position courante, pour qu'une reconnexion reprenne juste après.
+  const snapshotMessage = () =>
+    formatSse({ event: "snapshot", id: formatEventId(tail.generation, tail.offset), data: getState() });
+
+  const openEvents = (req, res) => {
+    const plan = planResume(req.headers["last-event-id"], { generation: tail.generation, end: tail.offset });
+    const initial = [];
+    if (plan.snapshot) initial.push(snapshotMessage());
+    else if (plan.after !== null) for (const entry of replay) if (entry.offset > plan.after) initial.push(entry.message);
+    hub.open(res, initial);
+  };
+
+  // Recalage : un instantané GitHub à intervalle fixe (la prochaine tentative part à la fin de la précédente, donc
+  // sans chevauchement). En cas d'échec, le dernier instantané est conservé et un `warning` est poussé.
+  let closed = false;
+  let recalTimer = null;
+  const scheduleRecalibration = () => {
+    if (closed) return;
+    recalTimer = setTimeout(recalibrate, snapshotIntervalMs);
+    recalTimer.unref();
+  };
+  async function recalibrate() {
+    try {
+      const next = await fetchSnapshot({ cwd: root });
+      if (closed) return;
+      snapshot = next;
+      warnings = [];
+      hub.broadcast(snapshotMessage());
+    } catch (error) {
+      if (closed) return;
+      const warning = recordFailure(error);
+      warnings = [warning];
+      hub.broadcast(formatSse({ event: "warning", data: warning }));
+    }
+    scheduleRecalibration();
+  }
+  scheduleRecalibration();
+
+  const stopBackground = () => {
+    closed = true;
+    if (recalTimer !== null) clearTimeout(recalTimer);
+    tail.stop();
+    hub.close();
+  };
+
+  let actualPort = 0;
   const server = http.createServer(
-    createRequestListener({ getPort: () => actualPort, getState, publicDir, csp, log }),
+    createRequestListener({ getPort: () => actualPort, getState, publicDir, csp, openEvents, log }),
   );
   try {
     actualPort = await listen(server, port);
   } catch (error) {
+    stopBackground();
     const reason = error && error.code === "EADDRINUSE" ? `le port ${port} est déjà utilisé` : error.message;
     throw new StartupError(`Impossible d'écouter sur ${HOST}:${port} : ${reason}.`);
   }
   try {
     acquireLock(lockFile, actualPort);
   } catch (error) {
+    stopBackground();
     server.close();
     server.closeAllConnections();
     throw error;
   }
 
   const close = () => {
+    stopBackground();
     releaseLock(lockFile);
     return new Promise((resolve) => {
       server.close(() => resolve());
@@ -316,7 +421,7 @@ async function startServer({ project, port, publicDir }) {
     });
   };
   const url = `http://${HOST}:${actualPort}`;
-  return { port: actualPort, url, lockFile, getState, close };
+  return { port: actualPort, url, lockFile, getState, clientCount: () => hub.size, close };
 }
 
 async function main(argv) {

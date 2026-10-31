@@ -4,8 +4,9 @@
 // Les fonctions de décision sont pures (isAllowedHost, isAllowedMethod, resolveStaticPath, mimeFor, importmapHash,
 // buildCsp, buildHeaders) et testées sans réseau. Seul createRequestListener touche au disque et à la réponse.
 //
-// Routes : GET/HEAD /health -> { ok: true } ; GET/HEAD /state -> état fusionné ; tout le reste -> fichier statique
-// du dossier public. Ordre des contrôles : Host (421), méthode (405), cible de la requête (400), puis le routage.
+// Routes : GET/HEAD /health -> { ok: true } ; GET/HEAD /state -> état fusionné ; GET /events -> flux SSE (voir
+// createSseHub) ; tout le reste -> fichier statique du dossier public. Ordre des contrôles : Host (421), méthode (405),
+// cible de la requête (400), puis le routage.
 // Aucune réponse ne porte d'en-tête CORS, et toutes portent la CSP, `nosniff` et `Referrer-Policy: no-referrer`.
 
 const crypto = require("crypto");
@@ -156,9 +157,118 @@ function buildHeaders({ csp, contentType, contentLength, noStore = false, allow 
   return headers;
 }
 
+// Noms d'événements SSE du contrat avec viz/public/js/state.js. Aucun autre nom n'est envoyé.
+const SSE_EVENTS = Object.freeze(["evt", "snapshot", "warning"]);
+const SSE_CONTENT_TYPE = "text/event-stream; charset=utf-8";
+const DEFAULT_HEARTBEAT_MS = 15000;
+const DEFAULT_MAX_BUFFERED_BYTES = 1024 * 1024;
+
+/**
+ * Message SSE : `id` (facultatif), `event`, puis `data` (JSON sur une seule ligne), terminé par une ligne vide.
+ * @param {{ event: "evt" | "snapshot" | "warning", data: unknown, id?: string }} message
+ * @throws {Error} nom d'événement hors contrat, `id` contenant un saut de ligne, ou `data` non sérialisable
+ */
+function formatSse({ event, data, id }) {
+  if (!SSE_EVENTS.includes(event)) throw new Error(`nom d'événement SSE hors contrat : ${String(event)}`);
+  if (id !== undefined && (typeof id !== "string" || /[\r\n\0]/.test(id))) throw new Error("identifiant SSE invalide");
+  const json = JSON.stringify(data);
+  if (typeof json !== "string") throw new Error("data SSE non sérialisable");
+  // JSON.stringify échappe les sauts de ligne : une seule ligne `data:`. U+2028/2029 sont aussi des fins de ligne
+  // pour certains analyseurs : on les échappe.
+  const line = json.replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
+  return (id === undefined ? "" : `id: ${id}\n`) + `event: ${event}\ndata: ${line}\n\n`;
+}
+
+/** Commentaire SSE (battement de cœur, accusé de connexion). Les navigateurs l'ignorent, les proxys le voient passer. */
+function formatComment(text = "") {
+  return `: ${String(text).replace(/[\r\n]+/g, " ")}\n\n`;
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // I/O
 // ---------------------------------------------------------------------------------------------------------------
+
+/**
+ * Ensemble des clients SSE connectés.
+ * - un seul minuteur pour tous les clients (battement toutes les `heartbeatMs`), actif seulement tant qu'il y a des
+ *   clients : un client déconnecté ne laisse ni minuteur ni écouteur derrière lui ;
+ * - un client qui accumule plus de `maxBufferedBytes` non lus (connexion bloquée) est coupé.
+ * @param {object} options
+ * @param {string} options.csp valeur de l'en-tête Content-Security-Policy
+ * @param {number} [options.heartbeatMs] période du battement (15 000 ms)
+ * @param {number} [options.maxBufferedBytes] tampon d'écriture maximal par client
+ * @param {(level: string, message: string) => void} [options.log]
+ */
+function createSseHub({ csp, heartbeatMs = DEFAULT_HEARTBEAT_MS, maxBufferedBytes = DEFAULT_MAX_BUFFERED_BYTES, log = () => {} }) {
+  const clients = new Set();
+  let timer = null;
+
+  function drop(res) {
+    clients.delete(res);
+    if (clients.size === 0 && timer !== null) {
+      clearInterval(timer);
+      timer = null;
+    }
+  }
+
+  function write(res, text) {
+    if (res.destroyed || res.writableEnded) return drop(res);
+    res.write(text);
+    if (res.writableLength > maxBufferedBytes) {
+      log("warn", "client SSE trop lent : connexion fermée");
+      res.destroy();
+      drop(res);
+    }
+  }
+
+  function broadcast(text) {
+    for (const res of [...clients]) write(res, text);
+  }
+
+  return {
+    /**
+     * Ouvre le flux sur `res` : en-têtes, accusé de connexion, messages initiaux (déjà formatés), puis inscription.
+     * Tout se fait de façon synchrone : aucun message diffusé ne peut s'intercaler entre les messages initiaux.
+     */
+    open(res, initial = []) {
+      res.writeHead(200, {
+        ...buildHeaders({ csp, contentType: SSE_CONTENT_TYPE, noStore: true }),
+        Connection: "keep-alive",
+        "X-Accel-Buffering": "no",
+      });
+      if (res.socket) res.socket.setNoDelay(true);
+      res.write(formatComment("connecté") + initial.join(""));
+      clients.add(res);
+      // Un seul rappel pour « close » et « error », retiré des deux événements dès que l'un des deux survient.
+      const release = () => {
+        res.off("close", release);
+        res.off("error", release);
+        drop(res);
+      };
+      res.on("close", release);
+      res.on("error", release);
+      if (timer === null) {
+        timer = setInterval(() => broadcast(formatComment("battement")), heartbeatMs);
+        timer.unref();
+      }
+    },
+    /** Envoie un texte déjà formaté (formatSse, formatComment) à tous les clients. */
+    broadcast,
+    /** Nombre de clients connectés. */
+    get size() {
+      return clients.size;
+    },
+    /** Coupe tous les clients et arrête le battement. */
+    close() {
+      for (const res of [...clients]) res.destroy();
+      clients.clear();
+      if (timer !== null) {
+        clearInterval(timer);
+        timer = null;
+      }
+    },
+  };
+}
 
 /**
  * Écouteur `request` de `http.createServer`.
@@ -167,9 +277,11 @@ function buildHeaders({ csp, contentType, contentLength, noStore = false, allow 
  * @param {() => object} options.getState état `/state` à sérialiser
  * @param {string} options.publicDir dossier des fichiers statiques
  * @param {string} options.csp valeur de l'en-tête Content-Security-Policy
+ * @param {(req: import("http").IncomingMessage, res: import("http").ServerResponse) => void} [options.openEvents]
+ *   ouvre le flux SSE de `GET /events` (sans lui, la route répond 404)
  * @param {(level: string, message: string) => void} [options.log] journal du serveur (stderr)
  */
-function createRequestListener({ getPort, getState, publicDir, csp, log = () => {} }) {
+function createRequestListener({ getPort, getState, publicDir, csp, openEvents, log = () => {} }) {
   const root = path.resolve(publicDir);
 
   function send(req, res, status, { body = "", contentType = TEXT, noStore = false, allow } = {}) {
@@ -230,6 +342,11 @@ function createRequestListener({ getPort, getState, publicDir, csp, log = () => 
         noStore: true,
       });
     }
+    if (pathname === "/events") {
+      if (typeof openEvents !== "function") return sendError(req, res, 404);
+      if (req.method !== "GET") return sendError(req, res, 405, { allow: "GET" });
+      return openEvents(req, res);
+    }
     return serveStatic(req, res);
   }
 
@@ -253,5 +370,9 @@ module.exports = {
   importmapHash,
   buildCsp,
   buildHeaders,
+  SSE_EVENTS,
+  formatSse,
+  formatComment,
+  createSseHub,
   createRequestListener,
 };

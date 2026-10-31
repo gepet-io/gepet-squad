@@ -593,7 +593,7 @@ describe("protections de l'ADR 0005 (intégration, sous-processus)", () => {
 
   test("fichier absent, extension hors liste blanche, dossier, route non gérée : 404", async () => {
     const { get } = await runningServer();
-    for (const cible of ["/absent.html", "/js/absent.js", "/notes.txt", "/README.md", "/js", "/js/", "/events", "/state/", "/%252e%252e/index.html"]) {
+    for (const cible of ["/absent.html", "/js/absent.js", "/notes.txt", "/README.md", "/js", "/js/", "/state/", "/%252e%252e/index.html"]) {
       const res = await get(cible);
       assert.equal(res.status, 404, cible);
       assert.ok(!res.body.includes("fixture"), cible);
