@@ -176,6 +176,7 @@ function createTail({
   let ino;
   let currentGeneration = generation;
   let watching = false;
+  let catchUp = null;
   let reading = false;
 
   function emitLines(lines, gen) {
@@ -254,11 +255,17 @@ function createTail({
       watching = true;
       poll();
       fs.watchFile(file, { interval: intervalMs, persistent: false }, listener);
+      // `fs.watchFile` prend son état de référence de façon asynchrone : une ligne ajoutée entre le `poll()` ci-dessus
+      // et cette première mesure ferait partie de la référence et ne déclencherait jamais de changement. Un passage
+      // de rattrapage, une période plus tard, la lit.
+      catchUp = setTimeout(poll, intervalMs);
+      catchUp.unref();
     },
     poll,
     stop() {
       if (!watching) return;
       watching = false;
+      clearTimeout(catchUp);
       fs.unwatchFile(file, listener);
     },
     /** Génération courante. */
