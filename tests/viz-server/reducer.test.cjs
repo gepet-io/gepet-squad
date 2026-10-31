@@ -488,7 +488,9 @@ describe("corrélation des agents", () => {
     assert.equal(byId.tD.phase, "requested", "l'architecte n'est pas concerné");
   });
 
-  test("agent.finished est idempotent : le premier signal gagne, les suivants n'ajoutent qu'un verdict manquant", () => {
+  // Adapté pour l'ADR 0008 : ce test figeait aussi `reported`/`started` tardifs après la fin, qui rouvrent
+  // désormais un cycle (voir « reprise d'un agent »). Il ne garde que l'idempotence du `finished` en double.
+  test("agent.finished en double (sans réactivation) : le premier signal gagne, les suivants n'ajoutent qu'un verdict manquant", () => {
     const start = [
       ev("agent.requested", 1, { toolUseId: "tA", agentType: VERIF, issue: 7 }),
       ev("agent.launched", 2, { toolUseId: "tA", agentId: "a1" }),
@@ -501,8 +503,6 @@ describe("corrélation des agents", () => {
         ev("agent.finished", 3, { agentId: "a1", source: "stop" }),
         ev("agent.finished", 3.5, { agentId: "a1", toolUseId: "tA", source: "tool", verdict: "PASS", block: "RAPPORT_VERIFICATION" }),
         ev("agent.finished", 3.7, { agentId: "a1", source: "stop", verdict: "FAIL" }),
-        ev("agent.reported", 3.8, { agentId: "a1", verdict: "FAIL" }),
-        ev("agent.started", 3.9, { agentId: "a1", agentType: VERIF }),
       ],
       at(4),
     );
@@ -629,6 +629,422 @@ describe("purge des agents", () => {
       ev("agent.requested", 1, { toolUseId: "a", agentType: DEV, issue: 1 }),
     ];
     assert.deepEqual(agentsOf(reduce(null, events, at(3))).map((a) => a.id), ["a", "b"]);
+  });
+});
+
+// --- Reprise d'un agent : cycle de vie non monotone (ADR 0008) ----------------------------------------------
+
+describe("reprise d'un agent (ADR 0008)", () => {
+  // Un cycle complet de développeur (lancé, rapporté, fini à at(4)) que les tests prolongent.
+  const devCycle = () => [
+    ev("agent.requested", 1, { toolUseId: "tA", agentType: DEV, issue: 7, mode: "IMPLEMENTATION" }),
+    ev("agent.launched", 2, { toolUseId: "tA", agentId: "a1" }),
+    ev("agent.reported", 3, { agentId: "a1", block: "RAPPORT_DEV", verdict: "LIVRÉ" }),
+    ev("agent.finished", 4, { agentId: "a1", source: "stop" }),
+  ];
+  const only = (events, minutes) => {
+    const agents = agentsOf(reduce(null, events, at(minutes)));
+    assert.equal(agents.length, 1, "un seul agent visuel, quel que soit le nombre de cycles");
+    return agents[0];
+  };
+
+  describe("réactivation par un signal de ts strictement postérieur à finishedAt", () => {
+    const cases = [
+      {
+        name: "agent.started",
+        signal: (m) => ev("agent.started", m, { agentId: "a1", agentType: DEV }),
+        phase: "running",
+        block: null,
+        verdict: null,
+      },
+      {
+        name: "agent.launched",
+        signal: (m) => ev("agent.launched", m, { toolUseId: "tA", agentId: "a1" }),
+        phase: "running",
+        block: null,
+        verdict: null,
+      },
+      {
+        name: "agent.reported",
+        signal: (m) => ev("agent.reported", m, { agentId: "a1", block: "RAPPORT_DEV", verdict: "BLOQUÉ" }),
+        phase: "reported",
+        block: "RAPPORT_DEV",
+        verdict: "BLOQUÉ",
+      },
+    ];
+
+    for (const c of cases) {
+      test(`${c.name} ouvre un nouveau cycle : finishedAt à null, bonne phase, block/verdict du nouveau cycle`, () => {
+        const before = only(devCycle(), 5);
+        assert.equal(before.phase, "finished");
+        assert.equal(before.block, "RAPPORT_DEV");
+        assert.equal(before.verdict, "LIVRÉ");
+
+        const a = only([...devCycle(), c.signal(5)], 6);
+        assert.equal(a.phase, c.phase);
+        assert.equal(a.finishedAt, null);
+        assert.equal(a.block, c.block);
+        assert.equal(a.verdict, c.verdict);
+        assert.equal(a.updatedAt, at(5), "updatedAt suit le dernier signal, tous cycles confondus");
+        assert.equal(a.id, "tA", "id reste celui du premier cycle");
+        assert.equal(a.since, at(1), "since reste celui du premier cycle");
+        assert.equal(a.agentId, "a1");
+        assert.equal(a.type, "developpeur");
+        assert.equal(a.issue, 7);
+        assert.equal(a.mode, "IMPLEMENTATION", "le mode d'un développeur ne change pas");
+      });
+
+      test(`${c.name} de ts égal à finishedAt ou antérieur ne rouvre rien`, () => {
+        const a = only([...devCycle(), c.signal(4)], 6);
+        assert.equal(a.phase, "finished");
+        assert.equal(a.finishedAt, at(4));
+        assert.equal(a.block, "RAPPORT_DEV");
+        assert.equal(a.verdict, "LIVRÉ");
+      });
+    }
+
+    test("la réactivation d'un agent qui n'est pas fini est sans effet de cycle (pas de remise à zéro du rapport)", () => {
+      const events = devCycle().slice(0, 3); // reported, pas encore finished
+      const a = only([...events, ev("agent.started", 3.5, { agentId: "a1", agentType: DEV })], 4);
+      assert.equal(a.phase, "reported", "started ne fait jamais reculer la phase d'un agent actif");
+      assert.equal(a.block, "RAPPORT_DEV");
+      assert.equal(a.verdict, "LIVRÉ");
+    });
+  });
+
+  describe("réouverture puis clôture", () => {
+    test("un agent.finished clôt le cycle rouvert, avec la date de ce cycle", () => {
+      const events = [
+        ...devCycle(),
+        ev("agent.started", 5, { agentId: "a1", agentType: DEV }),
+        ev("agent.reported", 6, { agentId: "a1", block: "RAPPORT_DEV", verdict: "BLOQUÉ" }),
+        ev("agent.finished", 7, { agentId: "a1", source: "stop" }),
+      ];
+      const a = only(events, 8);
+      assert.equal(a.phase, "finished");
+      assert.equal(a.finishedAt, at(7));
+      assert.equal(a.updatedAt, at(7));
+      assert.equal(a.verdict, "BLOQUÉ", "le verdict est celui du dernier cycle");
+      assert.equal(a.since, at(1));
+      assert.equal(a.id, "tA");
+    });
+
+    test("deux réouvertures successives sont clôturées chacune par leur finished", () => {
+      const events = [
+        ...devCycle(),
+        ev("agent.started", 5, { agentId: "a1", agentType: DEV }),
+        ev("agent.finished", 6, { agentId: "a1", source: "stop" }),
+        ev("agent.reported", 7, { agentId: "a1", block: "RAPPORT_DEV", verdict: "LIVRÉ" }),
+        ev("agent.finished", 8, { agentId: "a1", source: "stop" }),
+      ];
+      const phasesAt = (n, minutes) => {
+        const a = only(events.slice(0, n), minutes);
+        return [a.phase, a.finishedAt];
+      };
+      assert.deepEqual(phasesAt(4, 5), ["finished", at(4)]);
+      assert.deepEqual(phasesAt(5, 5), ["running", null]);
+      assert.deepEqual(phasesAt(6, 6), ["finished", at(6)]);
+      assert.deepEqual(phasesAt(7, 7), ["reported", null]);
+      assert.deepEqual(phasesAt(8, 8), ["finished", at(8)]);
+    });
+
+    test("un feature.status qui fait sortir l'issue de la station clôt le cycle rouvert (signal 6)", () => {
+      const events = [
+        ev("feature.status", 0, { issue: 7, status: "in-progress" }),
+        ...devCycle(),
+        ev("agent.started", 5, { agentId: "a1", agentType: DEV }),
+      ];
+      assert.equal(only(events, 5.5).phase, "running");
+      const a = only([...events, ev("feature.status", 6, { issue: 7, status: "in-review" })], 7);
+      assert.equal(a.phase, "finished");
+      assert.equal(a.finishedAt, at(6));
+      assert.equal(a.since, at(1));
+    });
+
+    test("un feature.status qui garde l'issue dans la station de l'agent ne clôt pas le cycle rouvert", () => {
+      const events = [...devCycle(), ev("agent.started", 5, { agentId: "a1", agentType: DEV }), ev("feature.status", 6, { issue: 7, status: "changes-requested" })];
+      assert.equal(only(events, 7).phase, "running");
+    });
+  });
+
+  describe("fins en double et rapports tardifs : ils complètent, ils ne rouvrent rien", () => {
+    test("un finished reçu sur un agent déjà fini ne change ni la phase ni finishedAt, et ne complète que ce qui manque", () => {
+      const events = [
+        ev("agent.requested", 1, { toolUseId: "tA", agentType: VERIF, issue: 7 }),
+        ev("agent.launched", 2, { toolUseId: "tA", agentId: "a1" }),
+        ev("agent.finished", 3, { agentId: "a1", source: "stop" }),
+        ev("agent.finished", 3.5, { agentId: "a1", source: "tool", block: "RAPPORT_VERIFICATION", verdict: "PASS" }),
+        ev("agent.finished", 3.8, { agentId: "a1", source: "stop", block: "AUTRE", verdict: "FAIL" }),
+      ];
+      const a = only(events, 4);
+      assert.equal(a.phase, "finished");
+      assert.equal(a.finishedAt, at(3));
+      assert.equal(a.updatedAt, at(3));
+      assert.equal(a.block, "RAPPORT_VERIFICATION");
+      assert.equal(a.verdict, "PASS", "le premier verdict reçu reste");
+    });
+
+    test("un reported de ts égal à finishedAt (écriture tardive du cycle clos) complète block/verdict sans rouvrir", () => {
+      const events = [...devCycle().slice(0, 2), ev("agent.finished", 3, { agentId: "a1", source: "stop" }), ev("agent.reported", 3, { agentId: "a1", block: "RAPPORT_DEV", verdict: "LIVRÉ" })];
+      const a = only(events, 4);
+      assert.equal(a.phase, "finished");
+      assert.equal(a.finishedAt, at(3));
+      assert.equal(a.block, "RAPPORT_DEV");
+      assert.equal(a.verdict, "LIVRÉ");
+    });
+
+    test("un reported tardif n'écrase pas le block/verdict du cycle clos", () => {
+      const a = only([...devCycle(), ev("agent.reported", 4, { agentId: "a1", block: "AUTRE", verdict: "BLOQUÉ" })], 5);
+      assert.equal(a.phase, "finished");
+      assert.equal(a.block, "RAPPORT_DEV");
+      assert.equal(a.verdict, "LIVRÉ");
+    });
+
+    test("un reported de ts antérieur à finishedAt, écrit après le finished, est classé avant lui : même état final", () => {
+      const inOrder = [...devCycle().slice(0, 2), ev("agent.reported", 3, { agentId: "a1", block: "RAPPORT_DEV", verdict: "LIVRÉ" }), ev("agent.finished", 4, { agentId: "a1", source: "stop" })];
+      const lateWrite = [inOrder[0], inOrder[1], inOrder[3], inOrder[2]];
+      const a = only(lateWrite, 5);
+      assert.equal(a.phase, "finished");
+      assert.equal(a.finishedAt, at(4));
+      assert.equal(a.block, "RAPPORT_DEV");
+      assert.deepEqual(a, only(inOrder, 5));
+    });
+  });
+
+  describe("tri par ts, ordre du journal pour les ex-æquo", () => {
+    test("les événements agent.* sont appliqués par ts, quel que soit l'ordre d'écriture", () => {
+      const events = [
+        ...devCycle(),
+        ev("agent.started", 5, { agentId: "a1", agentType: DEV }),
+        ev("agent.reported", 6, { agentId: "a1", block: "RAPPORT_DEV", verdict: "BLOQUÉ" }),
+        ev("agent.finished", 7, { agentId: "a1", source: "stop" }),
+      ];
+      const expected = only(events, 8);
+      assert.equal(expected.phase, "finished");
+      assert.equal(expected.verdict, "BLOQUÉ");
+      assert.deepEqual(only([...events].reverse(), 8), expected);
+      const shuffled = [events[5], events[2], events[0], events[6], events[4], events[1], events[3]];
+      assert.deepEqual(only(shuffled, 8), expected);
+    });
+
+    test("à ts égal, l'ordre du journal départage : started puis finished clôt, finished puis started rouvre", () => {
+      const base = devCycle(); // fini à at(4)
+      const startedFirst = [...base, ev("agent.started", 5, { agentId: "a1", agentType: DEV }), ev("agent.finished", 5, { agentId: "a1", source: "stop" })];
+      const finishedFirst = [...base, ev("agent.finished", 5, { agentId: "a1", source: "stop" }), ev("agent.started", 5, { agentId: "a1", agentType: DEV })];
+      const a = only(startedFirst, 6);
+      assert.equal(a.phase, "finished");
+      assert.equal(a.finishedAt, at(5));
+      const b = only(finishedFirst, 6);
+      assert.equal(b.phase, "running", "le finished de ts 5 est un doublon du cycle clos à at(4) ; le started rouvre ensuite");
+      assert.equal(b.finishedAt, null);
+    });
+
+    test("launched avant ou après started, à ts égal ou presque : même agent, même état", () => {
+      const requested = ev("agent.requested", 1, { toolUseId: "tQ", agentType: ARCHI, mode: "CADRAGE_QUESTIONS" });
+      const started = (m) => ev("agent.started", m, { agentId: "q1", agentType: ARCHI });
+      const launched = (m) => ev("agent.launched", m, { toolUseId: "tQ", agentId: "q1", agentType: ARCHI });
+      const variants = [
+        [requested, started(2), launched(2)],
+        [requested, launched(2), started(2)],
+        [requested, started(2), launched(2.0004)],
+        [requested, launched(2.0004), started(2)],
+      ];
+      const states = variants.map((v) => only(v, 3));
+      for (const a of states) {
+        assert.equal(a.id, "tQ");
+        assert.equal(a.agentId, "q1");
+        assert.equal(a.toolUseId, "tQ");
+        assert.equal(a.phase, "running");
+        assert.equal(a.mode, "CADRAGE_QUESTIONS");
+      }
+    });
+  });
+
+  describe("architecte : mode et station déduits du block", () => {
+    const table = [
+      ["QUESTIONS", "CADRAGE_QUESTIONS", "cadrage"],
+      ["PROPOSITION", "CADRAGE_PROPOSITION", "cadrage"],
+      ["PITCH", "CADRAGE_FINALISATION", "cadrage"],
+      ["VERDICT_ROADMAP", "REVUE_ROADMAP", "roadmap"],
+      ["ESCALADE", "ESCALADE", "escalade"],
+    ];
+    for (const [block, mode, station] of table) {
+      test(`${block} -> mode ${mode}, station ${station}`, () => {
+        // Un architecte repris : le mode d'origine (CADRAGE_QUESTIONS ou autre) cède la place à celui du rapport.
+        const events = [
+          ev("agent.requested", 1, { toolUseId: "tR", agentType: ARCHI, mode: block === "QUESTIONS" ? "REVUE_ROADMAP" : "CADRAGE_QUESTIONS" }),
+          ev("agent.launched", 2, { toolUseId: "tR", agentId: "r1" }),
+          ev("agent.finished", 3, { agentId: "r1", source: "stop" }),
+          ev("agent.reported", 4, { agentId: "r1", block }),
+        ];
+        const a = only(events, 5);
+        assert.equal(a.phase, "reported");
+        assert.equal(a.block, block);
+        assert.equal(a.mode, mode);
+        assert.equal(a.station, station);
+      });
+    }
+
+    test("sans mode dans la mission (agent connu par SubagentStart seul), le block donne le mode", () => {
+      const a = only([ev("agent.started", 1, { agentId: "r1", agentType: ARCHI }), ev("agent.reported", 2, { agentId: "r1", block: "PITCH" })], 3);
+      assert.equal(a.mode, "CADRAGE_FINALISATION");
+      assert.equal(a.station, "cadrage");
+    });
+
+    test("une reprise sans rapport garde le mode du cycle précédent", () => {
+      const events = [
+        ev("agent.requested", 1, { toolUseId: "tR", agentType: ARCHI, mode: "CADRAGE_QUESTIONS" }),
+        ev("agent.launched", 2, { toolUseId: "tR", agentId: "r1" }),
+        ev("agent.reported", 3, { agentId: "r1", block: "QUESTIONS" }),
+        ev("agent.finished", 4, { agentId: "r1", source: "stop" }),
+        ev("agent.started", 5, { agentId: "r1", agentType: ARCHI }),
+      ];
+      const a = only(events, 6);
+      assert.equal(a.phase, "running");
+      assert.equal(a.block, null);
+      assert.equal(a.mode, "CADRAGE_QUESTIONS");
+      assert.equal(a.station, "cadrage");
+    });
+
+    test("un block inconnu ou un autre type d'agent ne change ni le mode ni la station", () => {
+      const archi = only([ev("agent.requested", 1, { toolUseId: "tR", agentType: ARCHI, mode: "CADRAGE_QUESTIONS" }), ev("agent.reported", 2, { toolUseId: "tR", agentId: "r1", block: "RAPPORT_DEV" })], 3);
+      assert.equal(archi.mode, "CADRAGE_QUESTIONS");
+      assert.equal(archi.station, "cadrage");
+      // Un développeur qui rend un bloc nommé comme un bloc d'architecte reste développeur.
+      const dev = only([ev("agent.requested", 1, { toolUseId: "tD", agentType: DEV, issue: 3, mode: "IMPLEMENTATION" }), ev("agent.reported", 2, { toolUseId: "tD", agentId: "d1", block: "PROPOSITION" })], 3);
+      assert.equal(dev.mode, "IMPLEMENTATION");
+      assert.equal(dev.station, "dev");
+    });
+
+    test("les clés héritées d'Object.prototype ne sont pas prises pour un block", () => {
+      const a = only([ev("agent.requested", 1, { toolUseId: "tR", agentType: ARCHI, mode: "CADRAGE_QUESTIONS" }), ev("agent.reported", 2, { toolUseId: "tR", agentId: "r1", block: "constructor" })], 3);
+      assert.equal(a.mode, "CADRAGE_QUESTIONS");
+    });
+  });
+
+  describe("unknown et purge s'appliquent au dernier cycle", () => {
+    test("passage en unknown : 45 min après le dernier signal du cycle rouvert, pas après la fin du premier", () => {
+      const events = [...devCycle(), ev("agent.started", 20, { agentId: "a1", agentType: DEV })];
+      assert.equal(only(events, 20 + 44.99).phase, "running");
+      const stale = only(events, 20 + 45);
+      assert.equal(stale.phase, "unknown");
+      assert.equal(stale.finishedAt, null);
+      assert.equal(stale.updatedAt, at(20));
+    });
+
+    test("purge : un agent rouvert reste affiché bien au-delà des 10 min qui suivent sa première fin", () => {
+      const events = [...devCycle(), ev("agent.started", 20, { agentId: "a1", agentType: DEV })];
+      assert.deepEqual(agentsOf(reduce(null, devCycle(), at(30))), [], "sans reprise, l'agent fini à at(4) est purgé");
+      assert.equal(only(events, 30).phase, "running");
+    });
+
+    test("purge : 10 min après la fin du dernier cycle, pas avant", () => {
+      const events = [...devCycle(), ev("agent.started", 20, { agentId: "a1", agentType: DEV }), ev("agent.finished", 25, { agentId: "a1", source: "stop" })];
+      assert.equal(only(events, 34.99).phase, "finished");
+      assert.deepEqual(agentsOf(reduce(null, events, at(35))), []);
+    });
+  });
+
+  describe("rejeu de la capture réelle du 2026-10-30 (tests/fixtures/journal/capture-reprise.jsonl)", () => {
+    const FIXTURE = path.join(__dirname, "..", "fixtures", "journal", "capture-reprise.jsonl");
+    const lines = fs.readFileSync(FIXTURE, "utf8").split("\n").filter((l) => l.trim() !== "");
+    const journal = lines.map((l) => JSON.parse(l));
+    const A = "a152ecd0174a7c035";
+    const B = "a7181e1aa24ee1883";
+    const agentOf = (state, agentId) => state.agents.find((a) => a.agentId === agentId);
+    // État après les n premières lignes du journal, à l'heure de la n-ième.
+    const prefix = (n) => reduce(null, journal.slice(0, n), journal[n - 1].ts);
+
+    test("la fixture a 14 lignes v1 et ne contient que des champs de métadonnées", () => {
+      assert.equal(journal.length, 14);
+      assert.ok(journal.every((e) => e.v === 1 && e.src === "hook" && typeof e.ts === "string"));
+      const allowed = new Set(["v", "ts", "src", "type", "sessionId", "toolUseId", "agentId", "agentType", "mode", "block", "source"]);
+      for (const e of journal) for (const k of Object.keys(e)) assert.ok(allowed.has(k), `champ inattendu : ${k}`);
+    });
+
+    test("état final : a152… fini avec PROPOSITION / CADRAGE_PROPOSITION, a718… fini avec QUESTIONS", () => {
+      const state = reduce(null, journal, "2026-10-30T14:18:00.000Z");
+      assert.deepEqual(state.warnings.map((w) => w.code), ["SNAPSHOT_MISSING"], "aucun événement de la capture n'est ignoré");
+      assert.equal(state.agents.length, 2);
+      const a = agentOf(state, A);
+      assert.equal(a.phase, "finished");
+      assert.equal(a.block, "PROPOSITION");
+      assert.equal(a.mode, "CADRAGE_PROPOSITION");
+      assert.equal(a.station, "cadrage");
+      assert.equal(a.type, "architecte");
+      assert.equal(a.id, "toolu_01TgFJ174zajsWqDbJDYBTR2", "id reste la clé du premier cycle");
+      assert.equal(a.toolUseId, "toolu_01TgFJ174zajsWqDbJDYBTR2");
+      assert.equal(a.since, "2026-10-30T14:13:03.588Z");
+      assert.equal(a.updatedAt, "2026-10-30T14:16:08.735Z");
+      assert.equal(a.finishedAt, "2026-10-30T14:16:08.735Z");
+
+      const b = agentOf(state, B);
+      assert.equal(b.phase, "finished");
+      assert.equal(b.block, "QUESTIONS");
+      assert.equal(b.mode, "CADRAGE_QUESTIONS");
+      assert.equal(b.id, "toolu_011uY1fsUab3NjGKWBDc4j83");
+      assert.equal(b.since, "2026-10-30T14:17:12.254Z");
+      assert.equal(b.finishedAt, "2026-10-30T14:17:41.086Z");
+      assert.deepEqual(state.agents.map((x) => x.agentId), [A, B], "triés par since");
+    });
+
+    test("deux réactivations de a152… : 14:14:22 (started) et 14:16:05 (reported), chaque fin les clôt", () => {
+      const steps = [];
+      for (let n = 1; n <= 9; n += 1) {
+        const a = agentOf(prefix(n), A) ?? prefix(n).agents[0];
+        steps.push([n, a.phase, a.finishedAt, a.block, a.mode]);
+      }
+      assert.deepEqual(steps, [
+        [1, "requested", null, null, "CADRAGE_QUESTIONS"],
+        [2, "running", null, null, "CADRAGE_QUESTIONS"],
+        [3, "running", null, null, "CADRAGE_QUESTIONS"],
+        [4, "reported", null, "QUESTIONS", "CADRAGE_QUESTIONS"],
+        [5, "finished", "2026-10-30T14:13:36.390Z", "QUESTIONS", "CADRAGE_QUESTIONS"],
+        [6, "running", null, null, "CADRAGE_QUESTIONS"], // 14:14:22 : première réactivation (started)
+        [7, "finished", "2026-10-30T14:15:36.614Z", null, "CADRAGE_QUESTIONS"], // fin de tour sans rapport
+        [8, "reported", null, "PROPOSITION", "CADRAGE_PROPOSITION"], // 14:16:05 : seconde réactivation (reported sans started)
+        [9, "finished", "2026-10-30T14:16:08.735Z", "PROPOSITION", "CADRAGE_PROPOSITION"],
+      ]);
+      assert.equal(prefix(6).agents[0].updatedAt, "2026-10-30T14:14:22.168Z");
+      assert.equal(prefix(8).agents[0].updatedAt, "2026-10-30T14:16:05.572Z");
+      for (let n = 1; n <= 9; n += 1) {
+        const a = prefix(n).agents[0];
+        assert.equal(a.id, "toolu_01TgFJ174zajsWqDbJDYBTR2");
+        assert.equal(a.since, "2026-10-30T14:13:03.588Z");
+      }
+    });
+
+    test("le second architecte n'est jamais confondu avec le premier repris", () => {
+      const after = prefix(10);
+      assert.equal(after.agents.length, 2);
+      assert.equal(after.agents[0].phase, "finished");
+      assert.equal(after.agents[1].phase, "requested");
+      const running = prefix(12);
+      assert.equal(agentOf(running, B).id, "toolu_011uY1fsUab3NjGKWBDc4j83");
+      assert.equal(agentOf(running, B).phase, "running");
+      assert.equal(agentOf(running, A).phase, "finished");
+    });
+
+    test("le résultat ne dépend pas de l'ordre d'écriture du journal", () => {
+      const now = "2026-10-30T14:18:00.000Z";
+      const expected = reduce(null, journal, now);
+      assert.deepEqual(reduce(null, [...journal].reverse(), now), expected);
+      // started et launched au même ts (hooks async), dans un sens ou dans l'autre : même agent, même état final.
+      const tied = journal.map((e, i) => (i === 2 ? { ...e, ts: journal[1].ts } : e));
+      const swapped = [...tied];
+      [swapped[1], swapped[2]] = [swapped[2], swapped[1]];
+      assert.deepEqual(reduce(null, swapped, now), reduce(null, tied, now));
+      assert.equal(reduce(null, swapped, now).agents.length, 2);
+      assert.equal(agentOf(reduce(null, swapped, now), A).toolUseId, "toolu_01TgFJ174zajsWqDbJDYBTR2");
+      assert.equal(agentOf(reduce(null, swapped, now), A).phase, "finished");
+    });
+
+    test("purge à 10 min après la dernière fin de chaque agent (le dernier cycle)", () => {
+      const ids = (now) => reduce(null, journal, now).agents.map((a) => a.agentId);
+      assert.deepEqual(ids("2026-10-30T14:26:08.734Z"), [A, B]);
+      assert.deepEqual(ids("2026-10-30T14:26:08.735Z"), [B]);
+      assert.deepEqual(ids("2026-10-30T14:27:41.086Z"), []);
+    });
   });
 });
 
