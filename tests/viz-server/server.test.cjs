@@ -1,6 +1,7 @@
-// Tests de viz/server.cjs : fonctions de la CLI et du verrou (unitaires), puis le serveur démarré en sous-processus
+// Tests de viz/server.cjs : fonctions du verrou et du journal (unitaires), puis le serveur démarré en sous-processus
 // (`node viz/server.cjs`) sur un port éphémère, avec le faux `gh`, un repo git temporaire et un journal de fixture.
-// Les protections de l'ADR 0005 sont vérifiées par de vraies requêtes HTTP.
+// Les protections de l'ADR 0005 sont vérifiées par de vraies requêtes HTTP. La CLI (parseCli) est dans cli.test.cjs,
+// le cycle de vie (status, stop, second démarrage) dans lifecycle.test.cjs.
 const { test, describe, afterEach } = require("node:test");
 const assert = require("node:assert/strict");
 const crypto = require("crypto");
@@ -9,19 +10,17 @@ const http = require("http");
 const net = require("net");
 const os = require("os");
 const path = require("path");
-const { spawn, spawnSync } = require("child_process");
+const { spawnSync } = require("child_process");
 
 const server = require("../../viz/server.cjs");
 const { createTempRepo, gitCommonDir, installFakeGh } = require("../helpers/index.cjs");
+const { REPO_ROOT, ghFixtureRoutes, startVizProcess } = require("../helpers/viz-process.cjs");
 
-const { StartupError, parseCli, parseJournal, warningFromError, isPidAlive, acquireLock, releaseLock, startServer } = server;
+const { StartupError, parseJournal, warningFromError, startServer } = server;
 const { GhError } = require("../../viz/lib/github.cjs");
+const { LockHeldError, isPidAlive, acquireLock, releaseLock } = require("../../viz/lib/lock.cjs");
 
-const REPO_ROOT = path.join(__dirname, "..", "..");
-const SERVER_CJS = path.join(REPO_ROOT, "viz", "server.cjs");
-const PRELOAD = path.join(__dirname, "..", "helpers", "gh-preload.cjs");
 const GH_FIXTURES = path.join(__dirname, "..", "fixtures", "gh-json");
-const PUBLIC_REL = "tests/fixtures/public/";
 const PUBLIC_DIR = path.join(REPO_ROOT, "tests", "fixtures", "public");
 const SESSION = "5f3c1a9e-7b2d-4c6e-9a41-0d8e2b7f6c13";
 
@@ -30,17 +29,7 @@ afterEach(() => {
   while (cleanups.length > 0) cleanups.pop()();
 });
 
-const fixture = (name) => JSON.parse(fs.readFileSync(path.join(GH_FIXTURES, name), "utf8"));
-
-function fixtureRoutes() {
-  return [
-    { match: ["api", "-X", "GET", "repos/o/r/milestones"], json: fixture("milestones.json") },
-    { match: ["issue", "list", "--repo", "o/r"], json: fixture("issues.json") },
-    { match: ["pr", "list", "--repo", "o/r", "--state", "open"], json: fixture("pulls-open.json") },
-    { match: ["pr", "list", "--repo", "o/r", "--state", "merged", "--base", "develop"], json: fixture("pulls-merged-develop.json") },
-    { match: ["pr", "list", "--repo", "o/r", "--state", "merged", "--base", "main"], json: fixture("pulls-merged-main.json") },
-  ];
-}
+const fixtureRoutes = ghFixtureRoutes;
 
 const ago = (seconds) => new Date(Date.now() - seconds * 1000).toISOString();
 const jsonl = (events) => events.map((event) => (typeof event === "string" ? event : JSON.stringify(event))).join("\n") + "\n";
@@ -83,50 +72,11 @@ function fakeGh(routes) {
   return fake;
 }
 
-/**
- * Lance `node viz/server.cjs` et attend la ligne d'information sur stderr.
- * Sous Windows, le faux gh (un .cmd) est branché par un module préchargé (voir gh-preload.cjs) ;
- * ailleurs `gh` est trouvé dans le PATH, comme en production.
- */
-function startProcess({ project, fake, extraArgs = [], publicArg = PUBLIC_REL, cwd = REPO_ROOT }) {
-  const env = fake ? fake.env() : { ...process.env };
-  const execArgv = [];
-  if (fake && process.platform === "win32") {
-    env.GEPET_TEST_FAKE_GH_SCRIPT = path.join(fake.dir, "fake-gh.cjs");
-    execArgv.push("--require", PRELOAD);
-  }
-  const args = [...execArgv, SERVER_CJS, "--project", project];
-  if (publicArg) args.push("--public-dir", publicArg);
-  args.push(...extraArgs);
-
-  const child = spawn(process.execPath, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
-  let stderr = "";
-  let stdout = "";
-  child.stdout.setEncoding("utf8");
-  child.stdout.on("data", (chunk) => (stdout += chunk));
-  child.stderr.setEncoding("utf8");
-  child.stderr.on("data", (chunk) => (stderr += chunk));
-  const exited = new Promise((resolve) => child.once("exit", (code, signal) => resolve({ code, signal })));
-  cleanups.push(() => child.kill("SIGKILL"));
-
-  const ready = new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`serveur non prêt après 15 s. stderr :\n${stderr}`)), 15000);
-    const check = () => {
-      const match = /\[gepet-squad-viz\] info http:\/\/127\.0\.0\.1:(\d+)\n/.exec(stderr);
-      if (match) {
-        clearTimeout(timer);
-        resolve(Number(match[1]));
-      }
-    };
-    child.stderr.on("data", check);
-    exited.then(({ code }) => {
-      clearTimeout(timer);
-      reject(new Error(`serveur arrêté (code ${code}) avant d'être prêt. stderr :\n${stderr}`));
-    });
-  });
-  // Évite un rejet non géré si le test attend `exited` à la place de `ready`.
-  ready.catch(() => {});
-  return { child, exited, ready, stderr: () => stderr, stdout: () => stdout };
+/** Lance `node viz/server.cjs` (voir tests/helpers/viz-process.cjs) ; le processus est tué en fin de test. */
+function startProcess(options) {
+  const proc = startVizProcess(options);
+  cleanups.push(() => proc.child.kill("SIGKILL"));
+  return proc;
 }
 
 /** Requête HTTP brute : le chemin et le Host sont envoyés tels quels (aucune normalisation). */
@@ -162,45 +112,6 @@ function importmapHashOf(html) {
 // ---------------------------------------------------------------------------------------------------------------
 // Unitaires
 // ---------------------------------------------------------------------------------------------------------------
-
-describe("parseCli (unitaire)", () => {
-  const CWD = path.resolve("dossier-courant");
-
-  test("valeurs par défaut : projet courant, port 0, viz/public", () => {
-    const options = parseCli([], CWD);
-    assert.equal(options.help, false);
-    assert.equal(options.project, CWD);
-    assert.equal(options.port, 0);
-    assert.equal(options.publicDir, path.join(REPO_ROOT, "viz", "public"));
-  });
-
-  test("--project, --port et --public-dir, chemins relatifs résolus depuis le dossier courant", () => {
-    const options = parseCli(["--project", "projet", "--port", "4321", "--public-dir", "tests/fixtures/public/"], CWD);
-    assert.equal(options.project, path.join(CWD, "projet"));
-    assert.equal(options.port, 4321);
-    assert.equal(options.publicDir, path.join(CWD, "tests", "fixtures", "public"));
-  });
-
-  test("--port 0 est accepté, et --help demande l'aide", () => {
-    assert.equal(parseCli(["--port", "0"], CWD).port, 0);
-    assert.equal(parseCli(["--port", "65535"], CWD).port, 65535);
-    assert.deepEqual(parseCli(["--help"], CWD), { help: true });
-    assert.deepEqual(parseCli(["-h"], CWD), { help: true });
-  });
-
-  test("un port invalide, une option inconnue ou un argument en trop donnent une erreur de code 2", () => {
-    const invalides = [["--port", "65536"], ["--port", "-1"], ["--port", "abc"], ["--port", "1.5"], ["--port", ""], ["--hote", "0.0.0.0"], ["status"], ["stop", "--project", "x"], ["--project"]];
-    for (const argv of invalides) {
-      assert.throws(() => parseCli(argv, CWD), (error) => error instanceof StartupError && error.exitCode === 2, argv.join(" "));
-    }
-  });
-
-  test("aucune option ne permet de choisir l'adresse d'écoute ni le binaire gh", () => {
-    for (const option of ["--host", "--bind", "--gh", "--gh-bin", "--exec-file"]) {
-      assert.throws(() => parseCli([option, "valeur"], CWD), StartupError, option);
-    }
-  });
-});
 
 describe("parseJournal (unitaire)", () => {
   test("lit les objets JSON, ignore les lignes vides et compte les lignes invalides", () => {
@@ -250,7 +161,7 @@ describe("verrou viz.lock (unitaire)", () => {
   test("refuse de remplacer le verrou d'un processus vivant", () => {
     const lockFile = tempLock();
     acquireLock(lockFile, 1111);
-    assert.throws(() => acquireLock(lockFile, 2222), (error) => error instanceof StartupError && /déjà lancé/.test(error.message) && error.message.includes("1111"));
+    assert.throws(() => acquireLock(lockFile, 2222), (error) => error instanceof LockHeldError && /déjà lancé/.test(error.message) && error.message.includes("1111"));
     assert.equal(JSON.parse(fs.readFileSync(lockFile, "utf8")).port, 1111);
   });
 
@@ -380,7 +291,7 @@ describe("démarrage du serveur (intégration, sous-processus)", () => {
     }
   });
 
-  test("--port fixe le port, et un second serveur sur le même projet est refusé", async () => {
+  test("--port fixe le port, et un second démarrage sur le même projet ne lance rien (voir lifecycle.test.cjs)", async () => {
     const probe = net.createServer();
     await new Promise((resolve) => probe.listen(0, "127.0.0.1", resolve));
     const wanted = probe.address().port;
@@ -392,8 +303,10 @@ describe("démarrage du serveur (intégration, sous-processus)", () => {
 
     const second = startProcess({ project: first.repo.dir, fake: first.fake });
     const { code } = await second.exited;
-    assert.notEqual(code, 0);
-    assert.match(second.stderr(), /\[gepet-squad-viz\] error Un serveur est déjà lancé/);
+    assert.equal(code, 0);
+    assert.equal(second.stdout(), `http://127.0.0.1:${wanted}\n`, "l'URL du serveur existant");
+    assert.match(second.stderr(), /\[gepet-squad-viz\] info Un serveur est déjà lancé/);
+    assert.ok(!second.stderr().includes(" error "));
     assert.equal(JSON.parse(fs.readFileSync(first.repo.lockFile, "utf8")).pid, first.proc.child.pid, "le verrou du premier est intact");
     assert.equal((await first.get("/health")).status, 200, "le premier serveur répond toujours");
   });

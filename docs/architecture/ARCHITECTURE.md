@@ -285,6 +285,7 @@ Le niveau retenu est celui d'un **outil local mono-utilisateur, en lecture seule
   viz/lib/github.cjs          instantané via gh (execFile)
   viz/lib/tail.cjs            suivi du journal (offset + fs.watchFile)
   viz/lib/http.cjs            routage, en-têtes de sécurité, statiques, SSE
+  viz/lib/lock.cjs            verrou viz.lock : pid vivant ou périmé, attente (status --wait), arrêt (stop)
   viz/public/index.html       importmap, conteneur, repli texte
   viz/public/js/state.js      application des événements côté client (pur)
   viz/public/js/layout.js     positions des stations, des files et des agents (pur)
