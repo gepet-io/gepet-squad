@@ -1,7 +1,8 @@
 "use strict";
 // Réducteur d'état de la visualisation : (instantané GitHub, événements du journal, horloge) -> état `/state`.
 // Module pur : aucune I/O, aucune exception, aucune mutation des arguments, aucun appel à `Date.now()` si `now` est donné.
-// Références : ARCHITECTURE § 6, ADR 0003 (état fusionné) et ADR 0004 (corrélation des agents).
+// Références : ARCHITECTURE § 6, ADR 0003 (état fusionné), ADR 0004 (corrélation des agents) et ADR 0008 (reprise
+// d'un agent).
 //
 // ---------------------------------------------------------------------------------------------------------
 // Forme de l'état renvoyé par `reduce(snapshot, events, now)` (contrat `/state`, consommé par `viz-web`)
@@ -64,9 +65,15 @@
 // - Corrélation des agents (ADR 0004) : clé `toolUseId`, puis `agentId` (préfixe `agent-` retiré) ; en l'absence de
 //   correspondance, FIFO par type d'agent sur les agents `requested` qui n'ont pas encore d'`agentId` (de la même
 //   session) ; au plus un agent `developpeur`/`verificateur`/`testeur` actif par issue (le plus récent) ;
-//   `agent.finished` est idempotent (le premier signal de fin gagne, les suivants ajoutent seulement un verdict
-//   manquant) ; un `feature.status` qui fait sortir l'issue de la station d'un agent le marque `finished` ;
 //   sans signal depuis 45 min, un agent passe en `unknown` sans être déclaré terminé.
+// - Cycle de vie non monotone (ADR 0008) : les événements `agent.*` sont appliqués par `ts` croissant (à égalité,
+//   dans l'ordre du journal). Un agent a une suite de cycles sous le même `agentId`. Un `agent.finished` ou un
+//   `feature.status` qui fait sortir l'issue de la station de l'agent clôt le cycle en cours ; un `finished` reçu
+//   sur un agent déjà `finished` n'ajoute qu'un `block`/`verdict` manquant. Un `started`, `launched` ou `reported`
+//   de `ts` strictement postérieur au `finishedAt` rouvre un cycle (reprise par `SendMessage`) : `finishedAt`
+//   revient à `null`, `running` (ou `reported`) et `block`/`verdict` repartent de `null`. Un `reported` de
+//   `ts` <= `finishedAt` (écriture tardive) ne rouvre rien. `id` et `since` restent ceux du premier cycle.
+//   Le `mode` d'un architecte se déduit du `block` de son rapport (BLOCK_MODE), donc sa station.
 // - Purge : on garde les agents de la session la plus récente (celle du dernier événement portant un `sessionId`),
 //   non terminés, ou terminés depuis moins de 10 min. Les autres sont retirés.
 
@@ -102,6 +109,15 @@ const AGENT_PREFIX = "claude-gepet-squad:";
 // Agents rattachés à une issue, dont un seul peut être actif à la fois.
 const SINGLE_PER_ISSUE = new Set(["developpeur", "verificateur", "testeur"]);
 const PHASE_ORDER = { requested: 0, running: 1, reported: 2, finished: 3 };
+// Bloc de rapport de l'architecte -> mode (ADR 0008, règle 4). `SendMessage` ne transporte pas le MODE, le rapport si.
+const BLOCK_MODE = Object.freeze({
+  QUESTIONS: "CADRAGE_QUESTIONS",
+  PROPOSITION: "CADRAGE_PROPOSITION",
+  PITCH: "CADRAGE_FINALISATION",
+  VERDICT_ROADMAP: "REVUE_ROADMAP",
+  ESCALADE: "ESCALADE",
+});
+const REOPENING_EVENTS = new Set(["agent.started", "agent.launched", "agent.reported"]);
 
 // Champs obligatoires de chaque type (ARCHITECTURE § 6). "s" : chaîne non vide ; "n" : entier >= 1 ;
 // "id" : identifiant d'agent non vide après normalisation ; "source" : `stop` ou `tool`.
@@ -505,6 +521,21 @@ function createAgentBook() {
     }
   }
 
+  // Reprise (ADR 0008, règle 1) : un signal de `ts` strictement postérieur à la fin ouvre un nouveau cycle.
+  function reopen(a, ev) {
+    a.finishedAt = null;
+    a.phase = ev.type === "agent.reported" ? "reported" : "running";
+    a.verdict = null;
+    a.block = null;
+  }
+
+  // Le mode d'un architecte se déduit du bloc de son rapport (ADR 0008, règle 4).
+  function deduceMode(a) {
+    if (a.type === "architecte" && a.block !== null && Object.prototype.hasOwnProperty.call(BLOCK_MODE, a.block)) {
+      a.mode = BLOCK_MODE[a.block];
+    }
+  }
+
   function touch(a, t) {
     if (isActive(a)) a.updatedAt = Math.max(a.updatedAt, t);
   }
@@ -512,7 +543,11 @@ function createAgentBook() {
   return {
     apply(ev) {
       const a = locate(ev);
+      if (a.phase === "finished" && a.finishedAt !== null && ev.t > a.finishedAt && REOPENING_EVENTS.has(ev.type)) {
+        reopen(a, ev);
+      }
       enrich(a, ev);
+      deduceMode(a);
       touch(a, ev.t);
       switch (ev.type) {
         case "agent.launched":
