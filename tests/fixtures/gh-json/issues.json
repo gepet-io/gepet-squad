@@ -1,0 +1,30 @@
+[
+  {
+    "number": 12,
+    "title": "Récupérer l'instantané GitHub",
+    "state": "OPEN",
+    "labels": [
+      { "id": "LA_1", "name": "scope:viz-server", "description": "", "color": "ededed" },
+      { "id": "LA_2", "name": "status:in-progress", "description": "", "color": "ededed" },
+      { "id": "LA_3", "name": "retry:1", "description": "", "color": "ededed" },
+      { "id": "LA_4", "name": "retry:2", "description": "", "color": "ededed" }
+    ],
+    "milestone": { "number": 2, "title": "M2 — Serveur temps réel", "description": "", "dueOn": null }
+  },
+  {
+    "number": 3,
+    "title": "Journal d'événements",
+    "state": "CLOSED",
+    "labels": [
+      { "id": "LA_5", "name": "status:done", "description": "", "color": "ededed" }
+    ],
+    "milestone": { "number": 1, "title": "M1 — Collecte", "description": "", "dueOn": null }
+  },
+  {
+    "number": 20,
+    "title": "Sans label ni milestone",
+    "state": "OPEN",
+    "labels": [],
+    "milestone": null
+  }
+]

@@ -1,4 +1,4 @@
-# claude-gepet-squad : notes pour les sessions qui font évoluer ce plugin
+# gepet-squad : notes pour les sessions qui font évoluer ce plugin
 
 Ce repo **est** un plugin Claude Code, et aussi sa propre marketplace (`.claude-plugin/marketplace.json`, `source: "./"`). Il ne contient pas d'application : seulement des prompts (agents, skills), un script bash et un hook node.
 
@@ -13,7 +13,7 @@ Ce repo **est** un plugin Claude Code, et aussi sa propre marketplace (`.claude-
 ## Conventions
 
 - Tout est rédigé en **français** : prompts, rapports, docs.
-- Subagent : `subagent_type` = `claude-gepet-squad:<name>`. Noms de fichiers en kebab-case, sans accent.
+- Subagent : `subagent_type` = `gepet-squad:<name>`. Noms de fichiers en kebab-case, sans accent.
 - Outils des agents : au minimum nécessaire. Le vérificateur et le testeur n'ont ni `Edit` ni `Write`.
 - Chaque changement de comportement : bump de `version` (semver) dans `.claude-plugin/plugin.json` et une entrée dans `CHANGELOG.md`.
 

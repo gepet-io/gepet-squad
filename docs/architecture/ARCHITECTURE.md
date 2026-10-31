@@ -1,10 +1,10 @@
-# Architecture — claude-gepet-squad : visualisation 3D temps réel (`/gepet-squad-viz`)
+# Architecture — gepet-squad : visualisation 3D temps réel (`/gepet-squad-viz`)
 
 > Statut : validée par l'utilisateur le 2026-10-30. Toute évolution passe par un nouvel ADR.
 
 ## 1. Besoin
 
-Le plugin `claude-gepet-squad` reçoit une nouvelle brique : une **visualisation 3D, en temps réel et en lecture seule**, du workflow d'un projet squad.
+Le plugin `gepet-squad` reçoit une nouvelle brique : une **visualisation 3D, en temps réel et en lecture seule**, du workflow d'un projet squad.
 
 - **Utilisateur** : la personne qui pilote un projet squad depuis Claude Code, sur son poste (Windows, macOS ou Linux). Un seul utilisateur, en local.
 - **Commande** : `/gepet-squad-viz` démarre un petit serveur Node local, puis affiche l'URL à ouvrir dans le navigateur. `/gepet-squad-viz stop` l'arrête.
@@ -35,7 +35,7 @@ Il y a **trois briques et un seul flux de données**, à sens unique : hooks →
 flowchart LR
   subgraph CC["Session Claude Code (CP + agents en worktree)"]
     H1["PreToolUse / PostToolUse<br/>matcher Agent"]
-    H2["SubagentStart / SubagentStop<br/>matcher ^claude-gepet-squad:"]
+    H2["SubagentStart / SubagentStop<br/>matcher ^(gepet-squad|claude-gepet-squad):"]
     H3["PreToolUse SubagentHandback<br/>(dans le subagent)"]
     H4["PostToolUse Bash<br/>gh issue edit / pr create / pr merge / issue close"]
   end
@@ -55,6 +55,8 @@ flowchart LR
 4. en repli, par `PostToolUse` sur `Agent` avec `status: "completed"`, pour les agents lancés en mode synchrone ;
 5. en dernier recours, par le recalage GitHub toutes les 60 s, qui corrige toute dérive.
 
+La capture réelle du 2026-10-30 confirme les points 1 et 2 en arrière-plan. Elle montre aussi qu'un agent repris par `SendMessage` enchaîne plusieurs cycles début → fin pour un même `agentId` : le cycle de vie n'est donc **pas monotone** ([ADR 0008](adr/0008-reprise-agent-cycle-non-monotone.md)).
+
 ## 3. Sous-projets
 
 La structure du plugin (`hooks/`, `skills/`, `agents/`, `scripts/`) est imposée par Claude Code : on ne crée donc pas de layout `apps/`. Les scopes ci-dessous sont à déclarer dans `.gepet-squad.json`.
@@ -69,7 +71,9 @@ La structure du plugin (`hooks/`, `skills/`, `agents/`, `scripts/`) est imposée
 
 Dépendances entre sous-projets :
 - tous les scopes dépendent de l'outillage du scope `repo` ;
-- `viz-server` dépend du **schéma d'événement v1** produit par `hooks` ;
+- `viz-server` dépend de `hooks` par deux modules, lus par chemin relatif :
+  - le **schéma d'événement v1** (`hooks/lib/schema.cjs`) ;
+  - `hooks/lib/journal.cjs`, qui fournit `findSquadRoot` (racine du projet squad) et la résolution du chemin du journal. Ces deux fonctions sont donc aussi un contrat entre scopes, qu'on ne modifie pas sans vérifier `viz-server` ;
 - `viz-web` dépend du **contrat `/state` et SSE** exposé par `viz-server` ;
 - `skills` dépend de la CLI de `viz/server.cjs`.
 
@@ -154,19 +158,84 @@ Détail dans l'[ADR 0003](adr/0003-journal-evenements-et-etat-fusionne.md).
 
   `label` reste réservé en v1 : aucun type ne le produit. Le réducteur interprète `ref` et `status` **selon le type**, jamais de manière générique.
 - **Minimisation** : on n'enregistre **ni le prompt ni le rapport complet**. Seuls des champs extraits par expression régulière sont gardés : `MODE`, `ISSUE`, `PR` et `TENTATIVE` du prompt, l'en-tête du bloc et la ligne `Verdict:` ou `Statut:` du rapport.
-- **État fusionné** : servi par `/state` et calculé par un réducteur pur.
-  `{ repo, updatedAt, milestones[], features[{ number, title, milestone, status, retry, pr, station }], agents[{ id, type, mode, issue, pr, phase: requested|running|reported|finished|unknown, since }], releases[], warnings[{ code, message, at }] }`.
-  `warnings` est vide quand tout va bien. Il porte par exemple `GH_AUTH` quand `gh` échoue.
-  En cas de conflit sur le statut d'une feature, **GitHub fait foi** : le journal ne sert qu'à animer l'intervalle entre deux recalages.
-- **Correspondance avec les stations** :
-  - Cadrage : architecte en `CADRAGE_*` ;
-  - Roadmap : architecte en `REVUE_ROADMAP`, et les issues `backlog` ou `ready` en file d'attente ;
-  - Dev : `in-progress`, ou `changes-requested` avec un badge retry ;
-  - Vérification : `in-review` ;
-  - Test : `in-test` ;
-  - Merge : `done` ;
-  - Release : milestone fermé ou PR `release/*` ouverte ;
-  - `blocked` : zone « escalade » rouge, accolée à la station où la feature était.
+- **Instantané GitHub** : produit par `fetchSnapshot()` dans `viz/lib/github.cjs`. L'en-tête de ce module fait foi ; en voici le résumé.
+  ```
+  { repo: "owner/nom", fetchedAt: "<ISO 8601>",
+    issues:     [{ number, title, state, labels, status, retry, milestone, milestoneNumber }],
+    milestones: [{ number, title, state, openIssues, closedIssues, dueOn }],
+    pulls:      [{ number, title, state, head, base, url, draft, mergedAt }] }
+  ```
+  - **États en minuscules** :
+    - `"open"` ou `"closed"` pour les issues et les milestones ;
+    - `"open"`, `"merged"` ou `"closed"` pour les PR.
+  - **Champs des issues déduits des labels** :
+    - `status` est la valeur du label `status:*`, sans le préfixe. Il vaut `null` sans label ; s'il y a plusieurs labels, on retient le premier ;
+    - `retry` est le plus grand K des labels `retry:K`, ou `null` ;
+    - `labels` garde les noms bruts.
+  - **`pulls`** contient les PR ouvertes, et les PR mergées vers la branche d'intégration ou de production : `develop` et `main` par défaut, ou `branches` de `.gepet-squad.json`. **Les PR fermées sans merge sont absentes.**
+  - **Tri et limites** : les listes sont triées par numéro croissant, sans doublon. Une requête lit au plus 500 issues, 200 PR et 100 milestones.
+  - **Erreurs** : la promesse est rejetée avec une `GhError`, dont le `code` vaut :
+    - `GH_REPO` : repo absent ou invalide, refusé avant tout appel ;
+    - `GH_CONFIG` : `.gepet-squad.json` introuvable ou illisible ;
+    - `GH_MISSING` : `gh` introuvable ;
+    - `GH_AUTH` : code de sortie non nul (authentification, accès, repo inconnu) ;
+    - `GH_TIMEOUT` : plus de 15 s par appel ;
+    - `GH_PARSE` : JSON inattendu.
+
+    `message` est générique et **affichable** : c'est lui qu'on recopie dans `warnings[]`. `detail` contient le stderr brut tronqué de `gh` ; il n'est **pas affichable** et ne va que sur le stderr du serveur (ADR 0005).
+  - **Limite multi-repo** : en layout `multirepo`, seules les issues, les milestones et les **PR du repo hub** (`repo` de `.gepet-squad.json`) sont lues. Les PR des sous-repos (`scopes.<x>.repo`) n'apparaissent pas dans `pulls`. La vue s'appuie donc sur les labels `status:*` des issues du hub, qui suffisent pour placer les features. Lire les PR des sous-repos demandera un ADR.
+- **État fusionné (contrat `/state`)** : calculé par la fonction pure `reduce(snapshot, events, now, { warnings })` de `viz/lib/reducer.cjs`. L'en-tête de ce module fait foi. C'est ce contrat que suit `viz-web` (`state.js`, `layout.js`).
+  ```
+  { repo:       "owner/nom" | null,                       // celui de l'instantané
+    updatedAt:  "<ISO>",                                  // = now
+    milestones: [{ number, title, state: "open"|"closed", total, done }],
+    features:   [{ number, title, milestone, status, retry, pr, station, escalated }],
+    agents:     [{ id, type, mode, issue, pr, attempt, station, phase, since, updatedAt, finishedAt,
+                   verdict, block, agentId, toolUseId }],
+    releases:   [{ branch, pr, state: "open"|"merged"|"closed", title, milestone }],
+    warnings:   [{ code, message, at }] }
+  ```
+  - **Identifiants de station** (en minuscules) : `cadrage`, `roadmap`, `dev`, `verification`, `test`, `merge`, `release`, plus `escalade` pour les agents.
+  - **`milestones[]`** : la liste est triée par numéro. `total` est le nombre de features du milestone, et `done` le nombre de celles qui sont en `status: "done"`.
+  - **`features[]`** :
+    - la liste est triée par numéro. Seules les issues qui portent un label `status:*` sont des features ; une issue fermée sans `status:done` (remplacée) est écartée ;
+    - `title` et `milestone` (titre du milestone) valent `null` quand on ne les connaît pas, `retry` vaut `0` sans label `retry:K`, et `pr` est le numéro de la PR de la feature ou `null` ;
+    - `escalated` vaut `true` seulement pour une feature `blocked`. Dans ce cas, `station` donne la **station d'accolement** de la zone d'escalade : la dernière station connue par le journal (hors `blocked`), ou `dev` à défaut.
+  - **`agents[]`** :
+    - la liste est triée par `since` ;
+    - `type` est le nom court de l'agent (`developpeur`, sans le préfixe `gepet-squad:`, ni l'ancien `claude-gepet-squad:` des journaux existants) ;
+    - `id` est la clé de corrélation d'origine (`toolUseId`, sinon `agentId`). Il reste **stable** ensuite, et c'est lui qu'on utilise comme clé de rendu ;
+    - `agentId` et `toolUseId` sont les identifiants connus, ou `null` ;
+    - `phase` vaut `requested`, `running`, `reported`, `finished` ou `unknown`. **Elle n'est pas monotone** : un agent repris par `SendMessage` repasse de `finished` à `running` ou à `reported` ([ADR 0008](adr/0008-reprise-agent-cycle-non-monotone.md)). Les événements `agent.*` sont appliqués dans l'ordre de leur `ts` :
+      - un `started`, `launched` ou `reported` postérieur à `finishedAt` rouvre un cycle : `finishedAt` repasse à `null`, et `block` et `verdict` sont remis à zéro ou remplacés ;
+      - un `finished` clôt le cycle en cours ;
+      - l'idempotence des fins ne vaut qu'au sein d'un même cycle ;
+    - `mode` et `station` d'un architecte repris sont déduits du `block` de son rapport : `QUESTIONS`, `PROPOSITION` et `PITCH` → `cadrage` ; `VERDICT_ROADMAP` → `roadmap` ; `ESCALADE` → `escalade` ;
+    - `since` est le premier signal du **premier** cycle, `updatedAt` le dernier signal, et `finishedAt` la fin du **dernier** cycle (`null` si un cycle est en cours). Toutes les dates sont au format ISO ;
+    - `station` vaut `cadrage`, `roadmap`, `dev`, `verification`, `test`, `escalade` ou `null` ;
+    - `verdict` et `block` reprennent ceux du rapport, ou `null`.
+  - **`releases[]`** : les PR `release/*` de l'instantané, plus les `release.opened` postérieurs, triées par branche. `milestone` est le titre du milestone `M<k>` qui correspond à `release/m<k>-…`, ou `null`.
+  - **`warnings[]`** :
+    - d'abord ceux de l'appelant, passés par le 4ᵉ argument `{ warnings }` : `GH_REPO`, `GH_CONFIG`, `GH_MISSING`, `GH_AUTH`, `GH_TIMEOUT`, `GH_PARSE` (seuls `code`, `message` et `at` sont recopiés) ;
+    - ensuite ceux du réducteur :
+      - `SNAPSHOT_MISSING` : pas d'instantané, l'état est construit à partir du journal seul ;
+      - `SNAPSHOT_STALE` : instantané vieux de plus de 5 min ;
+      - `EVENT_INCOMPLETE` : un avertissement par type d'événement ignoré faute de champ obligatoire ;
+      - `EVENT_ERROR` : un événement qui a provoqué une erreur interne et a été ignoré.
+
+    La liste est vide quand tout va bien.
+  - **GitHub fait foi** : les événements `feature.*` et `milestone.changed` ne s'appliquent que s'ils sont postérieurs à `snapshot.fetchedAt`, alors que les événements `agent.*` comptent tous. Un `status: "done"` reçu par le journal remet `retry` à `0`.
+- **Correspondance avec les stations** (priorité de haut en bas) :
+  1. `blocked` : zone « escalade » rouge, avec `escalated: true` et `station` égale à la station d'accolement. Cette règle **l'emporte** sur toutes les autres, y compris dans un milestone fermé.
+  2. Release : **toutes** les features d'un milestone fermé, et les features **`done` seulement** d'un milestone qui a une PR `release/*` ouverte.
+  3. Sinon, selon le statut :
+     - `backlog` et `ready` → Roadmap ;
+     - `in-progress` et `changes-requested` (avec un badge retry) → Dev ;
+     - `in-review` → Vérification ;
+     - `in-test` → Test ;
+     - `done` → Merge.
+
+  Côté agents, l'architecte en `CADRAGE_*` est placé en Cadrage, et en `REVUE_ROADMAP` en Roadmap.
 - **Données personnelles** : uniquement des logins GitHub et des titres d'issues, déjà présents sur le repo. Aucune sauvegarde n'est nécessaire, car GitHub permet de tout reconstruire.
 
 ## 7. Sécurité
@@ -216,6 +285,7 @@ Le niveau retenu est celui d'un **outil local mono-utilisateur, en lecture seule
   viz/lib/github.cjs          instantané via gh (execFile)
   viz/lib/tail.cjs            suivi du journal (offset + fs.watchFile)
   viz/lib/http.cjs            routage, en-têtes de sécurité, statiques, SSE
+  viz/lib/lock.cjs            verrou viz.lock : pid vivant ou périmé, attente (status --wait), arrêt (stop)
   viz/public/index.html       importmap, conteneur, repli texte
   viz/public/js/state.js      application des événements côté client (pur)
   viz/public/js/layout.js     positions des stations, des files et des agents (pur)
@@ -259,3 +329,4 @@ Le niveau retenu est celui d'un **outil local mono-utilisateur, en lecture seule
 - [0005 — Sécurité du serveur local](adr/0005-securite-serveur-local.md)
 - [0006 — Stratégie de tests](adr/0006-strategie-de-tests.md)
 - [0007 — Logique métier sur mesure (normalisation, réducteur, scène)](adr/0007-logique-metier-sur-mesure.md)
+- [0008 — Reprise d'un agent : cycle de vie non monotone](adr/0008-reprise-agent-cycle-non-monotone.md)

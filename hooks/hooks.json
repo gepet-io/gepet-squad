@@ -61,7 +61,7 @@
     ],
     "SubagentStart": [
       {
-        "matcher": "^claude-gepet-squad:",
+        "matcher": "^(gepet-squad|claude-gepet-squad):",
         "hooks": [
           {
             "type": "command",
@@ -74,7 +74,7 @@
     ],
     "SubagentStop": [
       {
-        "matcher": "^claude-gepet-squad:",
+        "matcher": "^(gepet-squad|claude-gepet-squad):",
         "hooks": [
           {
             "type": "command",

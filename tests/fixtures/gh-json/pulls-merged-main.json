@@ -1,0 +1,12 @@
+[
+  {
+    "number": 35,
+    "title": "release: M0",
+    "state": "MERGED",
+    "headRefName": "release/m0-socle",
+    "baseRefName": "main",
+    "url": "https://github.com/o/r/pull/35",
+    "isDraft": false,
+    "mergedAt": "2026-10-28T10:00:00Z"
+  }
+]

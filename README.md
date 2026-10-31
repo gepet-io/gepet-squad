@@ -1,4 +1,4 @@
-# claude-gepet-squad
+# gepet-squad
 
 Plugin Claude Code : une **squad IT d'agents** qui transforme un simple prompt en projet livré.
 
@@ -41,7 +41,7 @@ Après vos deux validations, tout est autonome. GitHub est la source de vérité
 | `/gepet-squad-resume [consigne]` | Reprend un projet dans une nouvelle session, en reconstruisant l'état depuis GitHub. |
 | `/gepet-squad-status` | Affiche l'avancement (lecture seule). |
 
-Si un autre plugin utilise le même nom, la forme préfixée `/claude-gepet-squad:gepet-squad` fonctionne toujours.
+Si un autre plugin utilise le même nom, la forme préfixée `/gepet-squad:gepet-squad` fonctionne toujours.
 
 ## Prérequis
 
@@ -55,8 +55,10 @@ Dans Claude Code :
 
 ```
 /plugin marketplace add D:\DevClaude\claude-gepet-squad
-/plugin install claude-gepet-squad@claude-gepet-squad
+/plugin install gepet-squad@claude-gepet-squad
 ```
+
+Le plugin s'appelle `gepet-squad` ; le repo GitHub et la marketplace gardent le nom `claude-gepet-squad`.
 
 Sur une autre machine, utilisez le repo GitHub : `/plugin marketplace add gepets/claude-gepet-squad`.
 

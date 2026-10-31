@@ -29,7 +29,7 @@ describe("fixtures : événement attendu pour chaque payload", () => {
       type: "agent.requested",
       sessionId: SESSION,
       toolUseId: "toolu_01Aq8Zp3Xv5Rk2Nm7Ls9Wd4T",
-      agentType: "claude-gepet-squad:developpeur",
+      agentType: "gepet-squad:developpeur",
       mode: "IMPLEMENTATION",
       issue: 7,
     });
@@ -43,7 +43,7 @@ describe("fixtures : événement attendu pour chaque payload", () => {
       type: "agent.requested",
       sessionId: SESSION,
       toolUseId: "toolu_01Bc4Yq6Tn8Hj3Mp5Rw2Vx9K",
-      agentType: "claude-gepet-squad:verificateur",
+      agentType: "gepet-squad:verificateur",
       issue: 7,
       pr: 12,
       attempt: 2,
@@ -59,7 +59,7 @@ describe("fixtures : événement attendu pour chaque payload", () => {
       sessionId: SESSION,
       toolUseId: "toolu_01Aq8Zp3Xv5Rk2Nm7Ls9Wd4T",
       agentId: "a4d2c8f1e0b3a297",
-      agentType: "claude-gepet-squad:developpeur",
+      agentType: "gepet-squad:developpeur",
     });
   });
 
@@ -72,7 +72,7 @@ describe("fixtures : événement attendu pour chaque payload", () => {
       sessionId: SESSION,
       toolUseId: "toolu_01Bc4Yq6Tn8Hj3Mp5Rw2Vx9K",
       agentId: "b7e1f4a2c9d83056",
-      agentType: "claude-gepet-squad:verificateur",
+      agentType: "gepet-squad:verificateur",
       source: "tool",
     });
   });
@@ -85,7 +85,7 @@ describe("fixtures : événement attendu pour chaque payload", () => {
       type: "agent.started",
       sessionId: SESSION,
       agentId: "a4d2c8f1e0b3a297",
-      agentType: "claude-gepet-squad:developpeur",
+      agentType: "gepet-squad:developpeur",
     });
   });
 
@@ -97,7 +97,7 @@ describe("fixtures : événement attendu pour chaque payload", () => {
       type: "agent.finished",
       sessionId: SESSION,
       agentId: "a4d2c8f1e0b3a297",
-      agentType: "claude-gepet-squad:developpeur",
+      agentType: "gepet-squad:developpeur",
       source: "stop",
       verdict: "LIVRÉ",
     });
@@ -111,7 +111,7 @@ describe("fixtures : événement attendu pour chaque payload", () => {
       type: "agent.reported",
       sessionId: SESSION,
       agentId: "b7e1f4a2c9d83056",
-      agentType: "claude-gepet-squad:verificateur",
+      agentType: "gepet-squad:verificateur",
       block: "RAPPORT_VERIFICATION",
       verdict: "PASS",
     });
@@ -531,5 +531,82 @@ describe("limite de 4 Ko", () => {
     const e = run(payload);
     assert.equal(e.issue, 9);
     assert.ok(JSON.stringify(e).length < 1000);
+  });
+});
+
+describe("préfixe des agents : nouveau (gepet-squad:) et ancien (claude-gepet-squad:)", () => {
+  const LEGACY = "claude-gepet-squad:";
+  const PREFIXES = ["gepet-squad:", LEGACY];
+  const NOT_SQUAD = [
+    "autre-plugin:architecte",
+    "claude-gepet-squad-evil:x",
+    "gepet-squad-evil:x",
+    "xgepet-squad:developpeur",
+    "claude-gepet-squad",
+    "gepet-squad",
+    "gepet-squad:",
+    LEGACY,
+  ];
+
+  // Les fixtures portent l'ancien préfixe (payloads réels) ; on les rejoue aussi avec un autre préfixe.
+  function withPrefix(name, prefix) {
+    return JSON.parse(JSON.stringify(fixture(name)).replaceAll(LEGACY, prefix));
+  }
+
+  test("les fixtures d'origine portent bien l'ancien préfixe (garde-fou du test)", () => {
+    assert.equal(fixture("subagent-start").agent_type, "claude-gepet-squad:developpeur");
+    assert.equal(fixture("pre-tool-use-agent").tool_input.subagent_type, "claude-gepet-squad:developpeur");
+  });
+
+  for (const prefix of PREFIXES) {
+    test(`${prefix} : chaque signal d'agent produit un événement dont le type porte le nouveau préfixe`, () => {
+      const pre = run(withPrefix("pre-tool-use-agent", prefix));
+      assert.equal(pre.type, "agent.requested");
+      assert.equal(pre.agentType, "gepet-squad:developpeur");
+      assert.equal(pre.issue, 7);
+
+      const launched = run(withPrefix("post-tool-use-agent-async-launched", prefix));
+      assert.equal(launched.type, "agent.launched");
+      assert.equal(launched.agentType, "gepet-squad:developpeur");
+
+      const completed = run(withPrefix("post-tool-use-agent-completed", prefix));
+      assert.equal(completed.type, "agent.finished");
+      assert.equal(completed.agentType, "gepet-squad:verificateur");
+
+      const start = run(withPrefix("subagent-start", prefix));
+      assert.equal(start.type, "agent.started");
+      assert.equal(start.agentType, "gepet-squad:developpeur");
+
+      const stop = run(withPrefix("subagent-stop", prefix));
+      assert.equal(stop.type, "agent.finished");
+      assert.equal(stop.source, "stop");
+      assert.equal(stop.agentType, "gepet-squad:developpeur");
+
+      const handback = run(withPrefix("pre-tool-use-subagent-handback", prefix));
+      assert.equal(handback.type, "agent.reported");
+      assert.equal(handback.agentType, "gepet-squad:verificateur");
+    });
+  }
+
+  test("les deux préfixes donnent des événements identiques", () => {
+    for (const name of ["pre-tool-use-agent", "post-tool-use-agent-async-launched", "subagent-start", "subagent-stop"]) {
+      assert.deepEqual(run(withPrefix(name, "gepet-squad:")), run(withPrefix(name, LEGACY)), name);
+    }
+  });
+
+  test("un autre plugin, un préfixe approchant ou un type vide -> null, pour chaque signal", () => {
+    for (const other of NOT_SQUAD) {
+      const pre = fixture("pre-tool-use-agent");
+      pre.tool_input.subagent_type = other;
+      assert.equal(run(pre), null, `PreToolUse ${other}`);
+
+      const post = fixture("post-tool-use-agent-completed");
+      post.tool_input.subagent_type = other;
+      assert.equal(run(post), null, `PostToolUse ${other}`);
+
+      assert.equal(run({ ...fixture("subagent-start"), agent_type: other }), null, `SubagentStart ${other}`);
+      assert.equal(run({ ...fixture("subagent-stop"), agent_type: other }), null, `SubagentStop ${other}`);
+      assert.equal(run({ ...fixture("pre-tool-use-subagent-handback"), agent_type: other }), null, `Handback ${other}`);
+    }
   });
 });

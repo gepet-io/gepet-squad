@@ -88,8 +88,8 @@ function ghFixture(name) {
 // Attendu pour chaque fixture de payload : type et identifiants qui prouvent que la bonne branche de
 // normalize.cjs a été appelée.
 const HOOK_CASES = [
-  ["pre-tool-use-agent", { type: "agent.requested", agentType: "claude-gepet-squad:developpeur", mode: "IMPLEMENTATION", issue: 7 }],
-  ["pre-tool-use-agent-verificateur", { type: "agent.requested", agentType: "claude-gepet-squad:verificateur", pr: 12 }],
+  ["pre-tool-use-agent", { type: "agent.requested", agentType: "gepet-squad:developpeur", mode: "IMPLEMENTATION", issue: 7 }],
+  ["pre-tool-use-agent-verificateur", { type: "agent.requested", agentType: "gepet-squad:verificateur", pr: 12 }],
   ["post-tool-use-agent-async-launched", { type: "agent.launched" }],
   ["post-tool-use-agent-completed", { type: "agent.finished", source: "tool", agentId: "b7e1f4a2c9d83056" }],
   ["subagent-start", { type: "agent.started" }],
@@ -132,6 +132,32 @@ describe("collecteur dans un projet squad : une ligne v1 par fixture", () => {
       readEvents(repo.events).map((e) => e.type),
       ["agent.requested", "agent.launched", "agent.started", "agent.reported", "agent.finished"],
     );
+  });
+});
+
+describe("collecteur : préfixe d'agent ancien et nouveau", () => {
+  // La fixture porte l'ancien préfixe (payload réel) ; le nouveau est obtenu en le remplaçant.
+  for (const prefix of ["claude-gepet-squad:", "gepet-squad:"]) {
+    for (const name of ["subagent-start", "subagent-stop", "pre-tool-use-agent"]) {
+      test(`${name} avec le préfixe ${prefix} : une ligne écrite, type au nouveau préfixe`, () => {
+        const repo = squadRepo({ withWorktree: false });
+        const payload = JSON.parse(JSON.stringify(hookFixture(name, repo.dir)).replaceAll("claude-gepet-squad:", prefix));
+        assertSilentSuccess(runCollector(payload, repo.dir));
+
+        const events = readEvents(repo.events);
+        assert.equal(events.length, 1);
+        assert.deepEqual(validate(events[0]), { valid: true, errors: [] });
+        assert.equal(events[0].agentType, "gepet-squad:developpeur");
+      });
+    }
+  }
+
+  test("un agent d'un autre plugin ou au préfixe approchant n'écrit rien", () => {
+    const repo = squadRepo({ withWorktree: false });
+    for (const agentType of ["autre-plugin:architecte", "claude-gepet-squad-evil:x"]) {
+      assertSilentSuccess(runCollector({ ...hookFixture("subagent-start", repo.dir), agent_type: agentType }, repo.dir));
+    }
+    assert.equal(fs.existsSync(repo.events), false);
   });
 });
 

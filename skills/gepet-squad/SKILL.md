@@ -18,7 +18,7 @@ Tu orchestres une squad d'agents comme une vraie équipe IT. Tu es le **seul** �
   - `feature-template.md`, `roadmap-template.md` : à lire avant la phase 3.
   - `github-conventions.md` : branches, labels, commandes `gh`, `.gepet-squad.json`. **Lis-le avant de commencer.**
   - `architecture-template.md` : utilisé par l'architecte.
-- Agents (outil Agent, `subagent_type`) : `claude-gepet-squad:architecte`, `claude-gepet-squad:developpeur`, `claude-gepet-squad:verificateur`, `claude-gepet-squad:testeur`.
+- Agents (outil Agent, `subagent_type`) : `gepet-squad:architecte`, `gepet-squad:developpeur`, `gepet-squad:verificateur`, `gepet-squad:testeur`.
 - Script : `bash "${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap.sh" <owner/repo> [chemin]`.
 - **GitHub est la source de vérité** : statuts (labels), milestones, rapports (commentaires de PR). Garde dans ton contexte uniquement les verdicts et les numéros ; le détail des rapports vit sur les PR. Grâce à ça, `/gepet-squad-resume` peut reprendre n'importe quand.
 - Tiens l'utilisateur informé en **une ligne** à chaque étape marquante (phase franchie, feature mergée, échec, escalade), sans détailler les rapports.

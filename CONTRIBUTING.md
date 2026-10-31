@@ -1,4 +1,4 @@
-# Faire évoluer claude-gepet-squad
+# Faire évoluer gepet-squad
 
 ## Ajouter un rôle (sub-agent)
 
@@ -23,7 +23,7 @@ Exemple : un agent `devops` qui met en place la CI/CD et le déploiement.
    ```
 2. Ajoutez le bloc `RAPPORT_DEVOPS` dans `skills/gepet-squad/references/report-formats.md`.
 3. Dans `skills/gepet-squad/SKILL.md` :
-   - ajoutez `claude-gepet-squad:devops` à la liste des agents ;
+   - ajoutez `gepet-squad:devops` à la liste des agents ;
    - décrivez **quand** le lancer (quelle phase ou quel statut), **quelle mission** lui passer et **que faire** de chaque verdict.
 4. Si le rôle introduit un nouveau statut, ajoutez le label dans `scripts/bootstrap.sh` et `references/github-conventions.md`, et le cas de reprise dans `skills/gepet-squad-resume/SKILL.md`.
 5. Mettez le tableau « La squad » du README à jour.
