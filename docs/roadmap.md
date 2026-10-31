@@ -1,4 +1,4 @@
-# Roadmap — claude-gepet-squad : visualisation 3D temps réel (`/gepet-squad-viz`)
+# Roadmap — gepet-squad : visualisation 3D temps réel (`/gepet-squad-viz`)
 
 Référence : [ARCHITECTURE.md](architecture/ARCHITECTURE.md) et ses ADR. Versions du plugin : **0.2.0** (M1, collecte), **0.3.0** (M2, serveur), **0.4.0** (M3, vue 3D et commande).
 
@@ -77,7 +77,7 @@ La vue doit savoir quel agent de la squad travaille, sur quelle feature, et quan
 - [ ] `hooks/lib/schema.cjs` exporte la liste des types v1 (ARCHITECTURE § 6), les champs autorisés et une fonction `validate(event)` qui rejette tout champ inconnu, tout type inconnu et toute ligne sérialisée de plus de 4 Ko.
 - [ ] Fixtures dans `tests/fixtures/hooks/` pour `PreToolUse` Agent, `PostToolUse` Agent (`async_launched` et `completed`), `SubagentStart`, `SubagentStop` et `PreToolUse` SubagentHandback, capturées avec `claude --debug-file` dans un projet jetable et anonymisées. À défaut de capture réelle, une fixture tirée de la documentation officielle est acceptée si elle porte `"_provenance": "doc:<URL>"`. Un `tests/fixtures/hooks/README.md` indique la provenance de chaque fixture et l'état des deux points ouverts de l'ADR 0004 (déclenchement de `SubagentStart`/`SubagentStop` en arrière-plan, format `agentId` vs `agent_id`) : « confirmé par capture » ou « non confirmé ». Les points non confirmés sont signalés dans les « Points d'attention » du rapport.
 - [ ] Étant donné chaque fixture, `normalize(payload)` renvoie l'événement attendu (`agent.requested` avec `mode`, `issue`, `pr` extraits du prompt ; `agent.launched` ; `agent.started` ; `agent.reported` avec `block` et `verdict` ; `agent.finished` avec `source` `tool` ou `stop`).
-- [ ] Un payload d'un agent qui n'est pas `claude-gepet-squad:*`, un outil non suivi ou un JSON incomplet donne `null` sans exception.
+- [ ] Un payload d'un agent qui n'est ni `gepet-squad:*` ni `claude-gepet-squad:*`, un outil non suivi ou un JSON incomplet donne `null` sans exception.
 - [ ] Minimisation : aucun événement produit ne contient le prompt, `last_assistant_message`, `tool_input.message` ni `content` (test qui vérifie l'absence de ces textes dans la sortie sérialisée).
 - [ ] Les identifiants `agent-xxx` et `xxx` sont normalisés sous la même forme.
 - [ ] Tests unitaires : `tests/hooks/schema.test.cjs` et `tests/hooks/normalize.test.cjs` couvrent chaque type, chaque fixture, les cas `null`, la minimisation et la limite de 4 Ko.
@@ -140,7 +140,7 @@ Les modules purs de F-02 et F-03 doivent être appelés par Claude Code à chaqu
 Dans un repo qui contient `.gepet-squad.json`, chaque hook suivi ajoute une ligne v1 à `<git-common-dir>/gepet-squad/events.jsonl`, sans jamais bloquer la session.
 
 ## Critères d'acceptance
-- [ ] `hooks/hooks.json` déclare, en plus de l'entrée `guard.cjs` inchangée, des entrées `"async": true` qui appellent `node "${CLAUDE_PLUGIN_ROOT}/hooks/events.cjs"` : `PreToolUse` (`Agent|Task` et `SubagentHandback`), `PostToolUse` (`Agent|Task` et `Bash`), `SubagentStart` et `SubagentStop` (matcher `^claude-gepet-squad:`).
+- [ ] `hooks/hooks.json` déclare, en plus de l'entrée `guard.cjs` inchangée, des entrées `"async": true` qui appellent `node "${CLAUDE_PLUGIN_ROOT}/hooks/events.cjs"` : `PreToolUse` (`Agent|Task` et `SubagentHandback`), `PostToolUse` (`Agent|Task` et `Bash`), `SubagentStart` et `SubagentStop` (matcher `^(gepet-squad|claude-gepet-squad):`).
 - [ ] `hooks/lib/journal.cjs` résout le journal par `git rev-parse --git-common-dir` depuis le `cwd` du payload, crée le dossier `gepet-squad/` si besoin, ajoute une ligne par `fs.appendFileSync`, et fait tourner le fichier au-delà de 5 Mo (`events.jsonl` → `events.1.jsonl`, un seul ancien conservé).
 - [ ] Étant donné un `cwd` hors d'un repo contenant `.gepet-squad.json` (recherche en remontant, comme `guard.cjs`), aucun fichier n'est écrit.
 - [ ] Étant donné un stdin invalide, un payload inconnu ou une erreur d'écriture, `events.cjs` sort avec le code 0, n'écrit rien sur stdout et trace l'erreur dans `collector.log`, borné à 256 Ko.

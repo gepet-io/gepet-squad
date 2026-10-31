@@ -1,10 +1,10 @@
-# Architecture — claude-gepet-squad : visualisation 3D temps réel (`/gepet-squad-viz`)
+# Architecture — gepet-squad : visualisation 3D temps réel (`/gepet-squad-viz`)
 
 > Statut : validée par l'utilisateur le 2026-10-30. Toute évolution passe par un nouvel ADR.
 
 ## 1. Besoin
 
-Le plugin `claude-gepet-squad` reçoit une nouvelle brique : une **visualisation 3D, en temps réel et en lecture seule**, du workflow d'un projet squad.
+Le plugin `gepet-squad` reçoit une nouvelle brique : une **visualisation 3D, en temps réel et en lecture seule**, du workflow d'un projet squad.
 
 - **Utilisateur** : la personne qui pilote un projet squad depuis Claude Code, sur son poste (Windows, macOS ou Linux). Un seul utilisateur, en local.
 - **Commande** : `/gepet-squad-viz` démarre un petit serveur Node local, puis affiche l'URL à ouvrir dans le navigateur. `/gepet-squad-viz stop` l'arrête.
@@ -35,7 +35,7 @@ Il y a **trois briques et un seul flux de données**, à sens unique : hooks →
 flowchart LR
   subgraph CC["Session Claude Code (CP + agents en worktree)"]
     H1["PreToolUse / PostToolUse<br/>matcher Agent"]
-    H2["SubagentStart / SubagentStop<br/>matcher ^claude-gepet-squad:"]
+    H2["SubagentStart / SubagentStop<br/>matcher ^(gepet-squad|claude-gepet-squad):"]
     H3["PreToolUse SubagentHandback<br/>(dans le subagent)"]
     H4["PostToolUse Bash<br/>gh issue edit / pr create / pr merge / issue close"]
   end
@@ -203,7 +203,7 @@ Détail dans l'[ADR 0003](adr/0003-journal-evenements-et-etat-fusionne.md).
     - `escalated` vaut `true` seulement pour une feature `blocked`. Dans ce cas, `station` donne la **station d'accolement** de la zone d'escalade : la dernière station connue par le journal (hors `blocked`), ou `dev` à défaut.
   - **`agents[]`** :
     - la liste est triée par `since` ;
-    - `type` est le nom court de l'agent (`developpeur`, sans le préfixe `claude-gepet-squad:`) ;
+    - `type` est le nom court de l'agent (`developpeur`, sans le préfixe `gepet-squad:`, ni l'ancien `claude-gepet-squad:` des journaux existants) ;
     - `id` est la clé de corrélation d'origine (`toolUseId`, sinon `agentId`). Il reste **stable** ensuite, et c'est lui qu'on utilise comme clé de rendu ;
     - `agentId` et `toolUseId` sont les identifiants connus, ou `null` ;
     - `phase` vaut `requested`, `running`, `reported`, `finished` ou `unknown`. **Elle n'est pas monotone** : un agent repris par `SendMessage` repasse de `finished` à `running` ou à `reported` ([ADR 0008](adr/0008-reprise-agent-cycle-non-monotone.md)). Les événements `agent.*` sont appliqués dans l'ordre de leur `ts` :

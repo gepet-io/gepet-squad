@@ -10,7 +10,7 @@ La vue doit montrer quel agent est actif, sur quelle feature et dans quel mode, 
 - pour un agent **synchrone**, `PostToolUse` sur `Agent` arrive à la fin, avec `status = "completed"`, `agentId` et `content`.
 
 Ce que dit la documentation des hooks Claude Code (vérifiée le 2026-10-30) :
-- `SubagentStart` reçoit `agent_id` et `agent_type`, plus les champs communs `session_id`, `cwd`, `transcript_path` et `hook_event_name`. Son matcher porte sur le type d'agent, avec un préfixe pour les plugins : `^claude-gepet-squad:…$` ;
+- `SubagentStart` reçoit `agent_id` et `agent_type`, plus les champs communs `session_id`, `cwd`, `transcript_path` et `hook_event_name`. Son matcher porte sur le type d'agent, avec un préfixe pour les plugins : `^claude-gepet-squad:…$` avant le renommage du plugin, `^gepet-squad:…$` depuis (le matcher de `hooks.json` accepte les deux) ;
 - `SubagentStop` reçoit `agent_id`, `agent_type`, `agent_transcript_path`, `last_assistant_message` et `stop_hook_active`, plus les champs communs ;
 - `agent_id` et `agent_type` font partie des champs communs : ils sont présents sur les hooks d'outils déclenchés **à l'intérieur** d'un subagent ;
 - un subagent qui rend son rapport par **`SubagentHandback`** (c'est le cas des 4 agents de la squad) le place dans `tool_input.message` de cet outil. Dans ce cas, le `content` d'Agent ne contient plus qu'une courte note ;
@@ -26,11 +26,11 @@ Le collecteur combine **plusieurs signaux redondants**, chacun avec une priorit�
 
 | # | Hook (matcher) | Événement | Rôle |
 |---|---|---|---|
-| 1 | `PreToolUse` (`Agent`), uniquement si `subagent_type` commence par `claude-gepet-squad:` | `agent.requested` `{toolUseId, agentType, mode, issue, pr}` | L'intention : le seul endroit où l'on voit le prompt, donc le `MODE`, l'`ISSUE` et la `PR` |
+| 1 | `PreToolUse` (`Agent`), uniquement si `subagent_type` commence par `gepet-squad:` (ou l'ancien `claude-gepet-squad:`) | `agent.requested` `{toolUseId, agentType, mode, issue, pr}` | L'intention : le seul endroit où l'on voit le prompt, donc le `MODE`, l'`ISSUE` et la `PR` |
 | 2 | `PostToolUse` (`Agent`) | `agent.launched` `{toolUseId, agentId}` si `async_launched` ; `agent.finished` `{toolUseId, agentId, source:"tool"}` si `completed` | Fait le lien entre `tool_use_id` et `agentId`. **C'est le repli de fin pour les agents synchrones.** |
-| 3 | `SubagentStart` (`^claude-gepet-squad:`) | `agent.started` `{agentId, agentType}` | Confirme le démarrage effectif |
+| 3 | `SubagentStart` (préfixe `gepet-squad:` ou ancien `claude-gepet-squad:`) | `agent.started` `{agentId, agentType}` | Confirme le démarrage effectif |
 | 4 | `PreToolUse` (`SubagentHandback`), émis dans le subagent (`agent_id` présent) | `agent.reported` `{agentId, agentType, block, verdict}` | Verdict précis, tiré de l'en-tête du bloc et de la ligne `Verdict:` ou `Statut:` de `tool_input.message` |
-| 5 | `SubagentStop` (`^claude-gepet-squad:`) | `agent.finished` `{agentId, agentType, source:"stop"}`, avec le verdict extrait de `last_assistant_message` en repli de 4 | **C'est la source principale de fin d'agent, en arrière-plan comme en synchrone.** |
+| 5 | `SubagentStop` (préfixe `gepet-squad:` ou ancien `claude-gepet-squad:`) | `agent.finished` `{agentId, agentType, source:"stop"}`, avec le verdict extrait de `last_assistant_message` en repli de 4 | **C'est la source principale de fin d'agent, en arrière-plan comme en synchrone.** |
 | 6 | `PostToolUse` (`Bash`) : `gh issue edit … status:*`, `gh pr merge`, `gh issue close`, `gh pr create` | `feature.status`, `pr.merged`, `issue.closed`, `pr.opened` | Ce sont les transitions que le CP fait **après chaque rapport** : elles font foi pour l'état des features et clôturent implicitement l'agent rattaché à l'issue |
 | 7 | Recalage GitHub toutes les 60 s (serveur) | `snapshot` | Corrige toute dérive (événement manqué, syntaxe `gh` imprévue) |
 
