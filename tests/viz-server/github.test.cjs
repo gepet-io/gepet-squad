@@ -532,4 +532,17 @@ describe("readConfig (intégration)", () => {
     fs.writeFileSync(path.join(projectDir, ".gepet-squad.json"), "[1]");
     assert.throws(() => readConfig(projectDir), { code: "GH_CONFIG" });
   });
+
+  test("GH_CONFIG sans fichier : le chemin local reste dans detail, pas dans message", (t) => {
+    const { projectDir } = setup(t, []);
+    assert.throws(
+      () => readConfig(projectDir),
+      (error) => {
+        assert.equal(error.code, "GH_CONFIG");
+        assert.ok(!error.message.includes(projectDir), `message affichable sans chemin local : ${error.message}`);
+        assert.ok(error.detail.includes(projectDir), "le chemin est conservé dans detail");
+        return true;
+      },
+    );
+  });
 });
