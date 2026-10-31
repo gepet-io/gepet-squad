@@ -215,7 +215,7 @@ describe("startServer dans le processus (intégration)", () => {
     assert.equal(running.url, `http://127.0.0.1:${running.port}`);
 
     const health = await request(running.port, "/health");
-    assert.deepEqual(JSON.parse(health.body), { ok: true });
+    assert.deepEqual(JSON.parse(health.body), { ok: true, pid: process.pid }, "/health porte le pid du serveur");
     const state = JSON.parse((await request(running.port, "/state")).body);
     assert.ok(state.warnings.some((w) => w.code === "GH_REPO"), JSON.stringify(state.warnings));
     assert.ok(state.warnings.some((w) => w.code === "SNAPSHOT_MISSING"));
@@ -339,12 +339,15 @@ describe("démarrage du serveur (intégration, sous-processus)", () => {
 });
 
 describe("/health, /state et fichiers statiques (intégration, sous-processus)", () => {
-  test("/health renvoie {ok: true}", async () => {
-    const { get } = await runningServer();
+  test("/health renvoie {ok: true, pid} avec le pid du processus serveur, celui du verrou", async () => {
+    const { get, proc, repo } = await runningServer();
     const res = await get("/health");
     assert.equal(res.status, 200);
-    assert.deepEqual(JSON.parse(res.body), { ok: true });
+    assert.deepEqual(JSON.parse(res.body), { ok: true, pid: proc.child.pid });
+    assert.equal(JSON.parse(fs.readFileSync(repo.lockFile, "utf8")).pid, JSON.parse(res.body).pid);
     assert.equal(res.headers["content-type"], "application/json; charset=utf-8");
+    // Compatibilité : un client qui ne lit que `ok` n'est pas gêné par le champ en plus.
+    assert.equal(JSON.parse(res.body).ok, true);
   });
 
   test("/state fusionne l'instantané (faux gh) et le journal complet (fichier tournant compris)", async () => {

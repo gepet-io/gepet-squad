@@ -3,12 +3,19 @@
 // (ADR 0005). Ce module porte tout le cycle de vie : lecture, décision « vivant ou périmé », attente, arrêt.
 // Le skill `/gepet-squad-viz` ne manipule jamais de pid : il appelle `status` et `stop` de `viz/server.cjs`.
 //
+// DÉFINITION DE « VIVANT » (une seule, pour `status`, le démarrage et `stop`) : le pid du verrou existe ET
+// `GET /health` sur le port du verrou répond `{"ok":true,"pid":<ce même pid>}`. Un pid réattribué à un autre
+// processus après un redémarrage de la machine, ou un port tenu par un autre programme, ne passent pas ce test.
+// Trois états (`inspectLock`) : `live`, `stale` (pid mort, ou /health muet, hors délai, trop gros ou incohérent) et
+// `invalid` (contenu corrompu).
+//
 // SÉCURITÉ : le fichier est une entrée non fiable (un autre processus local a pu l'écrire). On n'en tire que deux
 // entiers validés, `pid` (entier >= 1) et `port` (entier de 1 à 65535). Aucune autre valeur n'est lue, exécutée,
 // ouverte ni suivie : l'URL est reconstruite à partir du port, sur 127.0.0.1, et la seule action sur un pid est
-// `process.kill`. Un verrou invalide est traité comme périmé.
+// `process.kill`. Un verrou invalide est traité comme périmé. La réponse de /health est elle aussi non fiable : on
+// n'en tire qu'un entier (le pid), après un délai maximal et une taille maximale ; rien n'est exécuté.
 //
-// Les dépendances (vérification du pid, `kill`, horloge, pause, sonde HTTP) sont injectables pour les tests.
+// Les dépendances (vérification du pid, sonde /health, `kill`, horloge, pause) sont injectables pour les tests.
 
 const fs = require("fs");
 const http = require("http");
@@ -22,7 +29,8 @@ const POLL_INTERVAL_MS = 250; // période de `status --wait`
 const STOP_POLL_MS = 50;
 const STOP_TIMEOUT_MS = 5000; // attente de la fin du processus après SIGTERM
 const KILL_TIMEOUT_MS = 3000; // attente supplémentaire après SIGKILL
-const PROBE_TIMEOUT_MS = 2000;
+const PROBE_TIMEOUT_MS = 1000; // délai maximal (total) du sondage de /health
+const MAX_HEALTH_BYTES = 1024; // un corps plus gros est ignoré
 const MAX_LOCK_BYTES = 4096;
 
 /** Le verrou est déjà tenu par un serveur vivant. */
@@ -65,6 +73,21 @@ function lockUrl(lock) {
 }
 
 /**
+ * Pid annoncé par une réponse de `/health` : `{"ok":true,"pid":<entier >= 1>}` donne le pid ; tout le reste (JSON
+ * invalide, `ok` différent de true, `pid` absent ou qui n'est pas un entier valide) donne null.
+ */
+function parseHealth(text) {
+  let value;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (!isPlainObject(value) || value.ok !== true) return null;
+  return Number.isSafeInteger(value.pid) && value.pid >= 1 ? value.pid : null;
+}
+
+/**
  * Vrai si le contenu de `/proc/<pid>/stat` décrit un processus zombie (état `Z`) : il a fini mais son parent ne l'a
  * pas encore attendu, et `kill(pid, 0)` réussit encore. Le nom de commande est entre parenthèses et peut en contenir.
  */
@@ -96,39 +119,48 @@ function isPidAlive(pid) {
 }
 
 /**
- * Sonde `GET /health` sur 127.0.0.1:<port> : vrai si c'est bien un serveur de visualisation (`{"ok":true}`).
- * Évite d'arrêter un processus étranger qui aurait récupéré le pid d'un ancien serveur. Aucune redirection suivie.
+ * Sonde `GET /health` sur 127.0.0.1:<port> et rend le pid annoncé par un serveur de visualisation, ou null (rien
+ * n'écoute, statut différent de 200, corps de plus de 1 Ko, JSON ou schéma invalide, délai dépassé).
+ * Le délai `timeoutMs` borne la durée totale, y compris face à un serveur qui répond au compte-gouttes. Aucune
+ * redirection n'est suivie et rien de ce qui est reçu n'est exécuté.
+ * @returns {Promise<number | null>}
  */
 function probeHealth(port, timeoutMs = PROBE_TIMEOUT_MS) {
   return new Promise((resolve) => {
     let settled = false;
+    let timer = null;
     const done = (value) => {
       if (settled) return;
       settled = true;
+      clearTimeout(timer);
       resolve(value);
     };
-    const req = http.get({ host: HOST, port, path: "/health", agent: false, timeout: timeoutMs }, (res) => {
-      let body = "";
-      res.setEncoding("utf8");
+    const req = http.get({ host: HOST, port, path: "/health", agent: false }, (res) => {
+      if (res.statusCode !== 200) {
+        done(null);
+        res.destroy();
+        return;
+      }
+      const chunks = [];
+      let size = 0;
       res.on("data", (chunk) => {
-        body += chunk;
-        if (body.length > 1024) res.destroy();
-      });
-      res.on("end", () => {
-        try {
-          done(res.statusCode === 200 && JSON.parse(body).ok === true);
-        } catch {
-          done(false);
+        size += chunk.length;
+        if (size > MAX_HEALTH_BYTES) {
+          done(null);
+          res.destroy();
+          return;
         }
+        chunks.push(chunk);
       });
-      res.on("error", () => done(false));
-      res.on("close", () => done(false));
+      res.on("end", () => done(parseHealth(Buffer.concat(chunks).toString("utf8"))));
+      res.on("error", () => done(null));
+      res.on("close", () => done(null));
     });
-    req.on("timeout", () => {
+    timer = setTimeout(() => {
+      done(null);
       req.destroy();
-      done(false);
-    });
-    req.on("error", () => done(false));
+    }, timeoutMs);
+    req.on("error", () => done(null));
   });
 }
 
@@ -146,27 +178,61 @@ function readLock(lockFile) {
   }
 }
 
-/**
- * État du verrou, sans rien modifier.
- * @returns {{ state: "none" } | { state: "live", lock: object } | { state: "stale", lock: object | null }}
- *   `stale` : le fichier existe mais son pid n'existe plus, ou son contenu est invalide (lock vaut alors null).
- */
-function inspectLock(lockFile, { isAlive = isPidAlive } = {}) {
-  if (!fs.existsSync(lockFile)) return { state: "none" };
-  const lock = readLock(lockFile);
-  if (lock && isAlive(lock.pid)) return { state: "live", lock };
-  return { state: "stale", lock };
+/** Contenu brut du verrou, ou null s'il est illisible ou trop gros. Sert à repérer un fichier remplacé entre-temps. */
+function fingerprint(lockFile) {
+  try {
+    if (fs.statSync(lockFile).size > MAX_LOCK_BYTES) return null;
+    return fs.readFileSync(lockFile, "utf8");
+  } catch {
+    return null;
+  }
 }
 
-/** Comme `inspectLock`, mais supprime un verrou périmé. */
-function checkLock(lockFile, deps = {}) {
-  const result = inspectLock(lockFile, deps);
-  if (result.state === "stale") fs.rmSync(lockFile, { force: true });
+/** Constat sans effet de bord : l'état, et l'empreinte du fichier sur laquelle il porte. */
+async function inspect(lockFile, { isAlive, probe }) {
+  if (!fs.existsSync(lockFile)) return { result: { state: "none" }, stamp: null };
+  const stamp = fingerprint(lockFile);
+  const lock = stamp === null ? null : parseLock(stamp);
+  if (!lock) return { result: { state: "invalid", lock: null }, stamp };
+  if (!isAlive(lock.pid)) return { result: { state: "stale", lock, reason: "dead" }, stamp };
+  // Définition unique de « vivant » : le pid existe ET /health, sur le port du verrou, annonce ce même pid.
+  const reported = await probe(lock.port);
+  if (reported === lock.pid) return { result: { state: "live", lock }, stamp };
+  return { result: { state: "stale", lock, reason: "unanswered" }, stamp };
+}
+
+/**
+ * État du verrou, sans rien modifier. Un pid vivant ne suffit pas : `/health` doit répondre avec ce même pid.
+ * @param {string} lockFile
+ * @param {{ isAlive?: (pid: number) => boolean, probe?: (port: number) => Promise<number | null> }} [deps]
+ *   `probe` rend le pid annoncé par `/health`, ou null
+ * @returns {Promise<{ state: "none" }
+ *   | { state: "live", lock: { pid: number, port: number } }
+ *   | { state: "stale", lock: { pid: number, port: number }, reason: "dead" | "unanswered" }
+ *   | { state: "invalid", lock: null }>}
+ *   `stale` : le pid n'existe plus (`dead`), ou /health est muet, hors délai, trop gros ou annonce un autre pid
+ *   (`unanswered`). `invalid` : contenu corrompu, illisible ou trop gros.
+ */
+async function inspectLock(lockFile, { isAlive = isPidAlive, probe = probeHealth } = {}) {
+  return (await inspect(lockFile, { isAlive, probe })).result;
+}
+
+/**
+ * Comme `inspectLock`, mais supprime un verrou périmé ou invalide, sauf si le fichier a changé pendant le sondage
+ * (un nouveau serveur a pu prendre la place).
+ */
+async function checkLock(lockFile, { isAlive = isPidAlive, probe = probeHealth } = {}) {
+  const { result, stamp } = await inspect(lockFile, { isAlive, probe });
+  if ((result.state === "stale" || result.state === "invalid") && fingerprint(lockFile) === stamp) {
+    fs.rmSync(lockFile, { force: true });
+  }
   return result;
 }
 
 /**
  * Crée le verrou de façon exclusive. Un verrou dont le pid n'existe plus (ou invalide) est périmé : il est remplacé.
+ * Dernier garde-fou contre deux démarrages simultanés, synchrone donc sans sondage : le pid suffit ici, car
+ * `startServer` a déjà écarté (par `checkLock`) un verrou dont le pid vivant ne répond pas sur /health.
  * @throws {LockHeldError} si un autre serveur vivant le détient
  */
 function acquireLock(lockFile, port, pid = process.pid, { isAlive = isPidAlive } = {}) {
@@ -197,20 +263,23 @@ function releaseLock(lockFile, pid = process.pid) {
 // ---------------------------------------------------------------------------------------------------------------
 
 /**
- * Attend jusqu'à `seconds` secondes un verrou vivant. Un verrou périmé n'est supprimé qu'au constat final : un
- * serveur en train de démarrer le remplace de lui-même.
- * @returns {Promise<{ state: "none" | "live" | "stale", lock?: object | null }>}
+ * Attend jusqu'à `seconds` secondes un verrou vivant (voir `inspectLock`). Un verrou périmé n'est supprimé qu'au
+ * constat final : un serveur en train de démarrer le remplace de lui-même.
+ * @returns {Promise<Awaited<ReturnType<typeof inspectLock>>>}
  */
-async function waitForLock(lockFile, { seconds, isAlive = isPidAlive, sleep = sleepFor, now = Date.now, intervalMs = POLL_INTERVAL_MS } = {}) {
+async function waitForLock(
+  lockFile,
+  { seconds, isAlive = isPidAlive, probe = probeHealth, sleep = sleepFor, now = Date.now, intervalMs = POLL_INTERVAL_MS } = {},
+) {
   const deadline = now() + seconds * 1000;
   for (;;) {
-    const result = inspectLock(lockFile, { isAlive });
+    const result = await inspectLock(lockFile, { isAlive, probe });
     if (result.state === "live") return result;
     const remaining = deadline - now();
     if (remaining <= 0) break;
     await sleep(Math.min(intervalMs, remaining));
   }
-  return checkLock(lockFile, { isAlive });
+  return checkLock(lockFile, { isAlive, probe });
 }
 
 /**
@@ -218,19 +287,23 @@ async function waitForLock(lockFile, { seconds, isAlive = isPidAlive, sleep = sl
  * suppression du verrou (sous Windows, `process.kill` termine le processus sans lui laisser nettoyer le verrou).
  * Si le processus résiste, SIGKILL, puis échec.
  *
- * Avant d'envoyer un signal, on vérifie que le port du verrou répond comme un serveur de visualisation : sinon le
- * pid a pu être réattribué à un processus étranger (verrou laissé par un serveur tué brutalement) et on n'y touche pas.
+ * Aucun signal n'est envoyé hors du cas `live` : il faut que le pid existe et que `/health` annonce ce même pid. Un
+ * pid réattribué à un processus étranger, ou un faux serveur qui répond `{"ok":true}` sans le bon pid, n'est jamais
+ * touché : le verrou est alors `stale` et il est supprimé.
  *
- * @returns {Promise<{ state: "none" | "stale", lock?: object | null }
+ * @returns {Promise<{ state: "none" }
+ *   | { state: "stale", lock: object, reason: "dead" | "unanswered" }
+ *   | { state: "invalid", lock: null }
  *   | { state: "stopped", lock: object, forced: boolean }
- *   | { state: "unverified" | "denied" | "survived", lock: object }>}
+ *   | { state: "self" | "denied" | "survived", lock: object }>}
+ *   `self` : le verrou désigne le processus courant.
  */
 async function stopServer(
   lockFile,
   {
     isAlive = isPidAlive,
+    probe = probeHealth,
     kill = (pid, signal) => process.kill(pid, signal),
-    verify = probeHealth,
     sleep = sleepFor,
     now = Date.now,
     selfPid = process.pid,
@@ -239,10 +312,10 @@ async function stopServer(
     intervalMs = STOP_POLL_MS,
   } = {},
 ) {
-  const found = checkLock(lockFile, { isAlive });
+  const found = await checkLock(lockFile, { isAlive, probe });
   if (found.state !== "live") return found;
   const { lock } = found;
-  if (lock.pid === selfPid || !(await verify(lock.port))) return { state: "unverified", lock };
+  if (lock.pid === selfPid) return { state: "self", lock };
 
   const waitForExit = async (limitMs) => {
     const deadline = now() + limitMs;
@@ -279,7 +352,10 @@ module.exports = {
   HOST,
   LOCK_NAME,
   LockHeldError,
+  PROBE_TIMEOUT_MS,
+  MAX_HEALTH_BYTES,
   parseLock,
+  parseHealth,
   lockUrl,
   isZombieStat,
   isPidAlive,

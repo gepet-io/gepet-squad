@@ -455,7 +455,7 @@ describe("createRequestListener (intégration locale)", () => {
     assert.equal(state.headers["cache-control"], "no-store");
     assert.equal(state.headers["content-type"], "application/json; charset=utf-8");
     const health = await get("/health");
-    assert.deepEqual(JSON.parse(health.body), { ok: true });
+    assert.deepEqual(JSON.parse(health.body), { ok: true, pid: process.pid }, "/health porte le pid du serveur");
     assert.equal(health.headers["cache-control"], "no-store");
   });
 

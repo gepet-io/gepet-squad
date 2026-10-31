@@ -264,22 +264,140 @@ describe("stop (intégration, sous-processus)", () => {
 
     const result = await runVizCli(projectArgs(repo, "stop"));
     assert.equal(result.code, 1);
-    assert.match(result.stderr, new RegExp(`error Le processus ${other.pid} existe, mais le port \\d+ ne répond pas comme le serveur`));
+    assert.match(result.stderr, new RegExp(`warn Verrou périmé supprimé .*: le processus ${other.pid} existe, mais le port \\d+ ne répond pas comme son serveur`));
+    assert.match(result.stderr, new RegExp(`Aucun signal n'a été envoyé au processus ${other.pid}`));
+    assert.ok(result.stderr.includes(repo.lockFile), "le message indique le fichier de verrou");
+    assert.match(result.stderr, /error Aucun serveur lancé/);
     assert.equal(isPidAlive(other.pid), true, "le processus étranger doit rester vivant");
-    assert.ok(fs.existsSync(repo.lockFile), "le verrou est conservé pour que l'utilisateur décide");
+    assert.ok(!fs.existsSync(repo.lockFile), "le verrou périmé est nettoyé");
   });
 
   test("n'arrête pas non plus un processus dont le port répond par autre chose qu'un serveur de visualisation", async () => {
     const repo = squadRepo();
     const other = bystander();
-    const impostor = http.createServer((req, res) => res.end("bonjour"));
-    await new Promise((resolve) => impostor.listen(0, "127.0.0.1", resolve));
-    cleanups.push(() => impostor.close());
-    fs.writeFileSync(repo.lockFile, JSON.stringify({ port: impostor.address().port, pid: other.pid }));
+    const impostor = await fakeHealthServer("bonjour");
+    fs.writeFileSync(repo.lockFile, JSON.stringify({ port: impostor.port, pid: other.pid }));
 
     const result = await runVizCli(projectArgs(repo, "stop"));
     assert.equal(result.code, 1);
     assert.equal(isPidAlive(other.pid), true);
+    assert.ok(!fs.existsSync(repo.lockFile));
+  });
+});
+
+/** Faux serveur HTTP sur 127.0.0.1 qui répond `body` (texte ou objet JSON) à toute requête et mémorise les requêtes. */
+async function fakeHealthServer(body, { status = 200 } = {}) {
+  const requests = [];
+  const server = http.createServer((req, res) => {
+    requests.push(`${req.method} ${req.url}`);
+    res.writeHead(status, { "Content-Type": "application/json" });
+    res.end(typeof body === "string" ? body : JSON.stringify(body));
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  cleanups.push(() => {
+    server.closeAllConnections();
+    server.close();
+  });
+  return { port: server.address().port, requests };
+}
+
+describe("pid vivant mais étranger au serveur : une seule définition de « vivant » (intégration, sous-processus)", () => {
+  // Cas du redémarrage de la machine : le verrou désigne un pid réattribué à un autre processus (ici `bystander`,
+  // vivant), et un port muet, tenu par un faux serveur de /health, ou tenu par un vrai serveur d'un autre pid.
+  const impostures = [
+    { nom: "faux serveur {ok: true} sans pid", prepare: () => fakeHealthServer({ ok: true }) },
+    { nom: "faux serveur {ok: true} avec le pid d'un autre processus", prepare: () => fakeHealthServer({ ok: true, pid: 1 }) },
+    { nom: "faux serveur dont le pid est une chaîne", prepare: (other) => fakeHealthServer({ ok: true, pid: String(other.pid) }) },
+    { nom: "faux serveur dont le corps dépasse 1 Ko", prepare: (other) => fakeHealthServer({ ok: true, pid: other.pid, padding: "x".repeat(2000) }) },
+    { nom: "port muet (rien n'écoute)", prepare: async () => ({ port: await freePort(), requests: [] }) },
+  ];
+
+  /** Verrou {port, pid: processus étranger vivant} où `port` est celui de l'imposture. */
+  async function lockedByImpostor(imposture) {
+    const repo = squadRepo();
+    const other = bystander();
+    const fake = await imposture.prepare(other);
+    fs.writeFileSync(repo.lockFile, JSON.stringify({ port: fake.port, pid: other.pid }));
+    return { repo, other, fake };
+  }
+
+  for (const imposture of impostures) {
+    test(`status : ${imposture.nom} -> aucune URL, code 1, verrou supprimé`, async () => {
+      const { repo, other, fake } = await lockedByImpostor(imposture);
+      const result = await runVizCli(projectArgs(repo, "status"));
+      assert.equal(result.code, 1);
+      assert.equal(result.stdout, "", "aucune URL morte n'est affichée");
+      assert.match(result.stderr, new RegExp(`warn Verrou périmé supprimé .*: le processus ${other.pid} existe, mais le port ${fake.port} ne répond pas`));
+      assert.ok(!fs.existsSync(repo.lockFile));
+      assert.equal(isPidAlive(other.pid), true);
+      for (const request of fake.requests) assert.equal(request, "GET /health", "seul GET /health est émis");
+    });
+
+    test(`stop : ${imposture.nom} -> aucun signal, code 1, verrou nettoyé`, async () => {
+      const { repo, other, fake } = await lockedByImpostor(imposture);
+      const result = await runVizCli(projectArgs(repo, "stop"));
+      assert.equal(result.code, 1);
+      assert.match(result.stderr, /Aucun signal n'a été envoyé/);
+      assert.equal(isPidAlive(other.pid), true, "le processus désigné par le verrou n'a reçu aucun signal");
+      assert.ok(!fs.existsSync(repo.lockFile));
+      for (const request of fake.requests) assert.equal(request, "GET /health");
+    });
+
+    test(`démarrage : ${imposture.nom} -> le verrou périmé est remplacé et un serveur démarre`, async () => {
+      const { repo, other } = await lockedByImpostor(imposture);
+      const proc = startVizProcess({ project: repo.dir, fake: fakeGh() });
+      cleanups.push(() => proc.child.kill("SIGKILL"));
+      const port = await proc.ready;
+      assert.deepEqual(readLockFile(repo), { port, pid: proc.child.pid });
+      assert.equal(isPidAlive(other.pid), true);
+      assert.equal(proc.stdout(), "", "ce n'est pas le cas « déjà lancé » : rien sur stdout");
+    });
+  }
+
+  test("status --wait : un pid étranger vivant ne donne jamais d'URL ; code 1 après le délai", async () => {
+    const { repo } = await lockedByImpostor(impostures[0]);
+    const started = Date.now();
+    const result = await runVizCli(projectArgs(repo, "status", "--wait", "1"));
+    assert.equal(result.code, 1);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /Aucun serveur lancé pour ce projet \(attendu 1 s\)\./);
+    assert.ok(Date.now() - started >= 900);
+    assert.ok(!fs.existsSync(repo.lockFile));
+  });
+
+  test("un vrai serveur dont le pid n'est pas celui du verrou (pid réattribué, port réutilisé) n'est pas considéré vivant", async () => {
+    const { repo, proc, port } = await runningServer();
+    const other = bystander();
+    fs.writeFileSync(repo.lockFile, JSON.stringify({ port, pid: other.pid })); // le pid du verrou n'est pas celui du serveur
+    const result = await runVizCli(projectArgs(repo, "stop"));
+    assert.equal(result.code, 1);
+    assert.equal(isPidAlive(other.pid), true, "le processus étranger n'a reçu aucun signal");
+    assert.equal(isPidAlive(proc.child.pid), true, "le vrai serveur n'a pas été arrêté non plus");
+    assert.equal(await healthStatus(port), 200);
+    assert.ok(!fs.existsSync(repo.lockFile));
+  });
+
+  test("témoin : si /health annonce bien le pid du verrou, le serveur est vivant (status, démarrage, puis stop envoie le signal)", async () => {
+    const repo = squadRepo();
+    const other = bystander();
+    // Un faux serveur qui annonce le bon pid est indiscernable d'un vrai : c'est la définition, pas une authentification.
+    const honest = await fakeHealthServer({ ok: true, pid: other.pid });
+    fs.writeFileSync(repo.lockFile, JSON.stringify({ port: honest.port, pid: other.pid }));
+
+    const status = await runVizCli(projectArgs(repo, "status"));
+    assert.equal(status.code, 0);
+    assert.equal(status.stdout, `http://127.0.0.1:${honest.port}\n`);
+
+    const start = await runVizCli(["--project", repo.dir, "--public-dir", PUBLIC_REL], { fake: fakeGh() });
+    assert.equal(start.code, 0);
+    assert.equal(start.stdout, `http://127.0.0.1:${honest.port}\n`);
+    assert.match(start.stderr, /Aucun second serveur n'est démarré/);
+    assert.equal(readLockFile(repo).pid, other.pid, "le verrou n'a pas été remplacé");
+
+    const stop = await runVizCli(projectArgs(repo, "stop"));
+    assert.equal(stop.code, 0, stop.stderr);
+    assert.equal(isPidAlive(other.pid), false, "le signal part bien quand le pid est confirmé par /health");
+    assert.ok(!fs.existsSync(repo.lockFile));
   });
 });
 
@@ -312,10 +430,11 @@ describe("verrou invalide ou hostile (intégration, sous-processus)", () => {
   test("status n'affiche que l'URL reconstruite à partir du port, jamais un autre champ du verrou", async () => {
     const repo = squadRepo();
     const other = bystander();
-    fs.writeFileSync(repo.lockFile, JSON.stringify({ port: 4321, pid: other.pid, url: "http://evil.example", host: "evil.example" }));
+    const health = await fakeHealthServer({ ok: true, pid: other.pid });
+    fs.writeFileSync(repo.lockFile, JSON.stringify({ port: health.port, pid: other.pid, url: "http://evil.example", host: "evil.example" }));
     const result = await runVizCli(projectArgs(repo, "status"));
     assert.equal(result.code, 0);
-    assert.equal(result.stdout, "http://127.0.0.1:4321\n");
+    assert.equal(result.stdout, `http://127.0.0.1:${health.port}\n`);
   });
 });
 

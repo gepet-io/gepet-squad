@@ -64,7 +64,7 @@ La structure du plugin (`hooks/`, `skills/`, `agents/`, `scripts/`) est imposée
 | Sous-projet (scope) | Dossier | Rôle | Expose | Consomme |
 |---|---|---|---|---|
 | `hooks` | `hooks/events.cjs`, `hooks/lib/`, entrées dans `hooks/hooks.json` | Collecteur : transforme les payloads de hooks en événements normalisés et les ajoute au journal. N'est actif que dans un repo qui contient `.gepet-squad.json`. Ne bloque jamais rien. | Le fichier `events.jsonl` (schéma v1, voir § 6) | Le stdin JSON des hooks Claude Code, `git rev-parse --git-common-dir` |
-| `viz-server` | `viz/server.cjs`, `viz/lib/` | Serveur HTTP local en lecture seule. Il suit le journal, prend l'instantané GitHub, fusionne les deux dans un état et le pousse en SSE. | `GET /` (fichiers statiques de `viz/public`), `GET /state` (JSON), `GET /events` (SSE), `GET /health` | `events.jsonl`, CLI `gh` |
+| `viz-server` | `viz/server.cjs`, `viz/lib/` | Serveur HTTP local en lecture seule. Il suit le journal, prend l'instantané GitHub, fusionne les deux dans un état et le pousse en SSE. | `GET /` (fichiers statiques de `viz/public`), `GET /state` (JSON), `GET /events` (SSE), `GET /health` (`{"ok":true,"pid":<pid>}`) | `events.jsonl`, CLI `gh` |
 | `viz-web` | `viz/public/` (`index.html`, `js/`, `css/`, `vendor/three/`), plus `scripts/vendor-three.sh` | Front 3D. Modules purs (`state.js`, `layout.js`) séparés du rendu (`scene.js`, `labels.js`, `main.js`). | — | `GET /state`, `EventSource('/events')` |
 | `skills` | `skills/gepet-squad-viz/SKILL.md`, plus la doc README et CHANGELOG | Commande utilisateur. Démarre le serveur en arrière-plan et affiche l'URL. Délègue l'unicité et l'arrêt aux sous-commandes `status` et `stop` de `viz/server.cjs` : le skill ne manipule aucun pid. | `/gepet-squad-viz [stop]` | CLI de `viz/server.cjs` (`[start]`, `status`, `stop`) |
 | `repo` | racine : `package.json`, `eslint.config.mjs`, `.github/workflows/ci.yml`, `.gitattributes`, `tests/helpers/` | Outillage transverse : lint, suite de tests, CI | `npm test`, `npm run lint` | — |
@@ -94,7 +94,7 @@ Le schéma d'événement v1 vit dans `hooks/lib/schema.cjs` : il appartient au s
 |---|---|---|---|---|---|
 | tous (racine) | `npm ci` (dev uniquement : ESLint) | `npm run lint` | — (aucun build) | `npm test` (= `node --test`) | — |
 | `hooks` | `npm ci` | `npx eslint hooks` | — | `node --test "tests/hooks/*.test.cjs"` | déclenché par Claude Code via `hooks/hooks.json` |
-| `viz-server` | `npm ci` | `npx eslint viz/server.cjs viz/lib` | — | `node --test "tests/viz-server/*.test.cjs"` | `node viz/server.cjs --project <dir> [--port 0]` ; `node viz/server.cjs status --project <dir> [--wait <s>]` (affiche l'URL si le pid du verrou est vivant, et nettoie un verrou périmé) ; `node viz/server.cjs stop --project <dir>` |
+| `viz-server` | `npm ci` | `npx eslint viz/server.cjs viz/lib` | — | `node --test "tests/viz-server/*.test.cjs"` | `node viz/server.cjs --project <dir> [--port 0]` ; `node viz/server.cjs status --project <dir> [--wait <s>]` (affiche l'URL si le serveur est vivant, c'est-à-dire si le pid du verrou existe et si `/health` annonce ce pid, et nettoie un verrou périmé) ; `node viz/server.cjs stop --project <dir>` |
 | `viz-web` | `npm ci` | `npx eslint viz/public/js` | — | `node --test "tests/viz-web/*.test.mjs"` | servi par `viz-server` |
 | `skills` | — | — | — | `claude plugin validate .` | `/gepet-squad-viz` puis `/gepet-squad-viz stop` |
 
@@ -285,7 +285,7 @@ Le niveau retenu est celui d'un **outil local mono-utilisateur, en lecture seule
   viz/lib/github.cjs          instantané via gh (execFile)
   viz/lib/tail.cjs            suivi du journal (offset + fs.watchFile)
   viz/lib/http.cjs            routage, en-têtes de sécurité, statiques, SSE
-  viz/lib/lock.cjs            verrou viz.lock : pid vivant ou périmé, attente (status --wait), arrêt (stop)
+  viz/lib/lock.cjs            verrou viz.lock : « vivant » = pid existant ET /health qui annonce ce pid (live / stale / invalid), attente (status --wait), arrêt (stop)
   viz/public/index.html       importmap, conteneur, repli texte
   viz/public/js/state.js      application des événements côté client (pur)
   viz/public/js/layout.js     positions des stations, des files et des agents (pur)
