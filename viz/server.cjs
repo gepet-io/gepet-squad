@@ -11,11 +11,14 @@
 // - écrit `<git-common-dir>/gepet-squad/viz.lock` (`{port, pid}`), supprimé à l'arrêt (SIGINT, SIGTERM) ;
 // - l'état de `/state` fusionne l'instantané GitHub et le journal (lu en entier au démarrage, puis suivi par offset) ;
 // - un second démarrage pour le même projet n'ouvre rien : il affiche l'URL du serveur vivant (stdout) et sort avec 0 ;
-// - `status` affiche l'URL (stdout, code 0) si le pid du verrou est vivant, sinon code 1 et nettoie un verrou périmé
-//   (`--wait <s>` attend jusqu'à <s> secondes un verrou vivant : le serveur n'écoute qu'après son premier instantané
-//   GitHub, jusqu'à 15 s, d'où `status --wait 20` juste après un démarrage) ;
-// - `stop` arrête le serveur par `process.kill`, attend sa fin, supprime le verrou ; sans serveur vivant : code 1.
-//   La logique du verrou (pid, arrêt) est dans lib/lock.cjs, la même sous Windows, macOS et Linux.
+// - « vivant » a une seule définition, pour `status`, le démarrage et `stop` : le pid du verrou existe ET `GET /health`
+//   sur le port du verrou répond `{"ok":true,"pid":<ce pid>}` (ADR 0005, lib/lock.cjs) ;
+// - `status` affiche l'URL (stdout, code 0) si le serveur est vivant, sinon code 1 et supprime un verrou périmé ou
+//   invalide (`--wait <s>` attend jusqu'à <s> secondes un verrou vivant : le serveur n'écoute qu'après son premier
+//   instantané GitHub, jusqu'à 15 s, d'où `status --wait 20` juste après un démarrage) ;
+// - `stop` arrête le serveur vivant par `process.kill`, attend sa fin, supprime le verrou ; sans serveur vivant :
+//   code 1, verrou périmé supprimé, aucun signal envoyé.
+//   La logique du verrou (pid, /health, arrêt) est dans lib/lock.cjs, la même sous Windows, macOS et Linux.
 //
 // Flux `GET /events` (ADR 0002 et 0003). Trois noms d'événements, `data` est toujours une chaîne JSON :
 //   - `evt`      : un événement v1 du journal, avec `id: <génération>:<offset>` ;
@@ -71,8 +74,9 @@ const USAGE = `Usage :
   node viz/server.cjs stop --project <dir>
 
   start    démarre le serveur (commande par défaut) ; s'il en existe déjà un pour le projet, affiche son URL et sort avec 0
-  status   affiche l'URL du serveur et sort avec 0 s'il est vivant ; sinon sort avec 1 et supprime un verrou périmé
-  stop     arrête le serveur et supprime le verrou ; sans serveur vivant, sort avec 1
+  status   affiche l'URL du serveur et sort avec 0 s'il est vivant (pid existant ET /health qui répond avec ce pid) ;
+           sinon sort avec 1 et supprime un verrou périmé
+  stop     arrête le serveur et supprime le verrou ; sans serveur vivant, sort avec 1 sans envoyer de signal
 
   --project <dir>     projet gepet-squad (contient .gepet-squad.json) ; défaut : dossier courant
   --port <n>          (start) port d'écoute sur 127.0.0.1 ; défaut : 0 (choix automatique)
@@ -319,7 +323,7 @@ async function startServer({
   generation = Date.now(),
 }) {
   const { root, paths, lockFile } = locateProject(project);
-  const held = checkLock(lockFile); // supprime un verrou périmé
+  const held = await checkLock(lockFile); // supprime un verrou périmé ou invalide
   if (held.state === "live") throw new AlreadyRunningError(held.lock);
 
   const events = loadRotatedJournal(paths.rotated);
@@ -444,35 +448,42 @@ async function startServer({
 }
 
 /**
- * `status` : URL du serveur vivant sur stdout et code 0 ; sinon message sur stderr et code 1 (un verrou périmé est
- * supprimé). Avec `wait` > 0, attend ce nombre de secondes un verrou vivant.
+ * `status` : URL du serveur vivant sur stdout et code 0 ; sinon message sur stderr et code 1 (un verrou périmé ou
+ * invalide est supprimé). Avec `wait` > 0, attend ce nombre de secondes un verrou vivant.
  * @param {{ project: string, wait?: number }} options
  * @param {{ out?: (text: string) => void, say?: (level: string, message: string) => void }} [deps] sorties, puis
- *   dépendances de lib/lock.cjs (isAlive, sleep, now) injectables pour les tests
+ *   dépendances de lib/lock.cjs (isAlive, probe, sleep, now) injectables pour les tests
  * @returns {Promise<number>} code de sortie
  * @throws {StartupError}
  */
 async function runStatus({ project, wait = 0 }, { out = writeOut, say = log, ...lockDeps } = {}) {
   const { lockFile } = locateProject(project);
-  const result = wait > 0 ? await waitForLock(lockFile, { seconds: wait, ...lockDeps }) : checkLock(lockFile, lockDeps);
+  const result =
+    wait > 0 ? await waitForLock(lockFile, { seconds: wait, ...lockDeps }) : await checkLock(lockFile, lockDeps);
   if (result.state === "live") {
     out(`${lockUrl(result.lock)}\n`);
     return 0;
   }
-  if (result.state === "stale") say("warn", staleMessage(result.lock));
+  if (result.state === "stale" || result.state === "invalid") say("warn", staleMessage(result, lockFile));
   say("error", wait > 0 ? `Aucun serveur lancé pour ce projet (attendu ${wait} s).` : "Aucun serveur lancé pour ce projet.");
   return 1;
 }
 
-function staleMessage(lock) {
-  return lock
-    ? `Verrou périmé supprimé : le processus ${lock.pid} n'existe plus.`
-    : "Verrou illisible ou invalide supprimé.";
+/** Message pour un verrou `stale` ou `invalid` qui vient d'être supprimé. */
+function staleMessage({ state, lock, reason }, lockFile) {
+  if (state === "invalid") return "Verrou illisible ou invalide supprimé.";
+  if (reason === "unanswered") {
+    return (
+      `Verrou périmé supprimé (${lockFile}) : le processus ${lock.pid} existe, mais le port ${lock.port} ne répond pas ` +
+      "comme son serveur de visualisation (/health muet, hors délai ou avec un autre pid) ; le pid a pu être réattribué."
+    );
+  }
+  return `Verrou périmé supprimé : le processus ${lock.pid} n'existe plus.`;
 }
 
 /**
  * `stop` : arrête le serveur vivant, attend sa fin et supprime le verrou (code 0) ; sans serveur vivant, ou si
- * l'arrêt échoue, message sur stderr et code 1.
+ * l'arrêt échoue, message sur stderr et code 1. Un verrou périmé est supprimé sans qu'aucun signal soit envoyé.
  * @param {{ project: string }} options
  * @param {{ say?: (level: string, message: string) => void }} [deps] sortie, puis dépendances de `stopServer`
  * @returns {Promise<number>} code de sortie
@@ -486,18 +497,16 @@ async function runStop({ project }, { say = log, ...stopDeps } = {}) {
       say("info", `Serveur arrêté (pid ${result.lock.pid}, port ${result.lock.port})${result.forced ? " : arrêt forcé (SIGKILL)" : ""}.`);
       return 0;
     case "stale":
-      say("warn", staleMessage(result.lock));
+    case "invalid":
+      say("warn", staleMessage(result, lockFile));
+      if (result.reason === "unanswered") say("warn", `Aucun signal n'a été envoyé au processus ${result.lock.pid}.`);
       say("error", "Aucun serveur lancé pour ce projet.");
       return 1;
     case "none":
       say("error", "Aucun serveur lancé pour ce projet.");
       return 1;
-    case "unverified":
-      say(
-        "error",
-        `Le processus ${result.lock.pid} existe, mais le port ${result.lock.port} ne répond pas comme le serveur de visualisation : ` +
-          `il n'a pas été arrêté (le pid a pu être réattribué). Si le serveur est bien mort, supprimer ${lockFile}.`,
-      );
+    case "self":
+      say("error", `Le verrou désigne le processus courant (pid ${result.lock.pid}) : arrêt refusé.`);
       return 1;
     case "denied":
       say("error", `Permission refusée pour arrêter le processus ${result.lock.pid}.`);
