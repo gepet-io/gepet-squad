@@ -8,7 +8,10 @@
 
 const { SCHEMA_VERSION, MAX_ID_LENGTH, isPlainObject, normalizeAgentId, validate } = require("./schema.cjs");
 
-const SQUAD_AGENT_PREFIX = "claude-gepet-squad:";
+// Préfixe des agents du plugin. L'ancien préfixe (`claude-gepet-squad:`, avant le renommage du plugin) reste
+// accepté pour lire les sessions et journaux existants ; les événements produits portent le nouveau.
+const SQUAD_AGENT_PREFIX = "gepet-squad:";
+const LEGACY_AGENT_PREFIX = "claude-gepet-squad:";
 // `Task` est l'ancien nom de l'outil `Agent`.
 const AGENT_TOOLS = new Set(["Agent", "Task"]);
 const HANDBACK_TOOL = "SubagentHandback";
@@ -31,7 +34,14 @@ function str(value) {
 }
 
 function isSquadAgentType(value) {
-  return typeof value === "string" && value.startsWith(SQUAD_AGENT_PREFIX) && value.length > SQUAD_AGENT_PREFIX.length;
+  if (typeof value !== "string") return false;
+  return [SQUAD_AGENT_PREFIX, LEGACY_AGENT_PREFIX].some((prefix) => value.startsWith(prefix) && value.length > prefix.length);
+}
+
+// Type d'agent tel qu'écrit dans l'événement : toujours avec le nouveau préfixe.
+function agentTypeOf(value) {
+  const s = str(value);
+  return s !== undefined && s.startsWith(LEGACY_AGENT_PREFIX) ? SQUAD_AGENT_PREFIX + s.slice(LEGACY_AGENT_PREFIX.length) : s;
 }
 
 function matchInt(text, regex) {
@@ -122,7 +132,7 @@ function fromPreToolUseAgent(payload, now) {
   return {
     ...baseEvent("agent.requested", payload, now),
     toolUseId,
-    agentType: str(input.subagent_type),
+    agentType: agentTypeOf(input.subagent_type),
     ...extractMission(input.prompt),
   };
 }
@@ -140,7 +150,7 @@ function fromPostToolUseAgent(payload, now) {
       ...baseEvent("agent.launched", payload, now),
       toolUseId,
       agentId,
-      agentType: str(input.subagent_type),
+      agentType: agentTypeOf(input.subagent_type),
     };
   }
   if (response.status === "completed") {
@@ -148,7 +158,7 @@ function fromPostToolUseAgent(payload, now) {
       ...baseEvent("agent.finished", payload, now),
       toolUseId,
       agentId,
-      agentType: str(input.subagent_type),
+      agentType: agentTypeOf(input.subagent_type),
       source: "tool",
     };
   }
@@ -161,7 +171,7 @@ function fromSubagentStart(payload, now) {
   return {
     ...baseEvent("agent.started", payload, now),
     agentId,
-    agentType: str(payload.agent_type),
+    agentType: agentTypeOf(payload.agent_type),
   };
 }
 
@@ -173,7 +183,7 @@ function fromSubagentStop(payload, now) {
   return {
     ...baseEvent("agent.finished", payload, now),
     agentId,
-    agentType: str(payload.agent_type),
+    agentType: agentTypeOf(payload.agent_type),
     source: "stop",
     verdict,
   };
@@ -190,7 +200,7 @@ function fromHandback(payload, now) {
     // Pas de `toolUseId` : ici c'est l'appel de SubagentHandback, alors que partout ailleurs `toolUseId`
     // désigne l'appel de l'outil Agent, clé de corrélation du réducteur (ADR 0004).
     agentId,
-    agentType: str(payload.agent_type),
+    agentType: agentTypeOf(payload.agent_type),
     block,
     verdict,
   };
@@ -228,4 +238,4 @@ function normalize(payload, options) {
   }
 }
 
-module.exports = { normalize, extractMission, extractReport, SQUAD_AGENT_PREFIX };
+module.exports = { normalize, extractMission, extractReport, SQUAD_AGENT_PREFIX, LEGACY_AGENT_PREFIX };
