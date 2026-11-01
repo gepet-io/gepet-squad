@@ -13,6 +13,8 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import { pageImports } from "./importmap.mjs";
+
 const require = createRequire(import.meta.url);
 const { resolveStaticPath } = require("../../viz/lib/http.cjs");
 
@@ -22,10 +24,8 @@ const VENDOR_DIR = path.join(PUBLIC_DIR, "vendor/three");
 const SCRIPT = path.join(ROOT, "scripts/vendor-three.sh");
 
 const PINNED = "0.187.0";
-const IMPORTMAP = Object.freeze({
-  three: "./vendor/three/build/three.module.js",
-  "three/addons/": "./vendor/three/addons/",
-});
+// L'importmap est lu dans viz/public/index.html (la page est la seule source) ; un test vérifie qu'il correspond à l'ADR 0002.
+const IMPORTMAP = Object.freeze(pageImports());
 
 // Fichiers attendus, relatifs à vendor/three/. Cette liste est volontairement écrite en dur (et non lue dans le
 // script) : elle est le contrat du dossier, le script doit la produire.
@@ -166,6 +166,13 @@ describe("contenu de viz/public/vendor/three", () => {
 
 describe("résolution des imports (importmap de l'ADR 0002)", () => {
   const entries = ENTRY_POINTS.map((file) => path.join(VENDOR_DIR, file));
+
+  test("l'importmap de index.html est exactement celui de l'ADR 0002 (three et three/addons/)", () => {
+    assert.deepEqual(IMPORTMAP, {
+      three: "./vendor/three/build/three.module.js",
+      "three/addons/": "./vendor/three/addons/",
+    });
+  });
 
   test("aucun import ne pointe vers un chemin absent du dossier", () => {
     const { errors } = walkImports(entries, PUBLIC_DIR, IMPORTMAP);

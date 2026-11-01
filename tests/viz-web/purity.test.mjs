@@ -12,7 +12,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { at, ev, sse, stateOf, feature, agent } from "./support.mjs";
 
 const JS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../viz/public/js");
-const MODULES = ["state.js", "layout.js"];
+const MODULES = ["state.js", "layout.js", "view-model.js", "sync.js"];
 
 // Le code source sans commentaires (les commentaires peuvent citer `three` ou le DOM).
 function code(file) {
