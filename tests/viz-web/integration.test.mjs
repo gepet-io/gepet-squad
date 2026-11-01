@@ -9,8 +9,9 @@ import http from "node:http";
 import path from "node:path";
 import { createRequire } from "node:module";
 
-import { connect } from "../../viz/public/js/main.js";
+import { boot, connect } from "../../viz/public/js/main.js";
 import { layoutFeatures } from "../../viz/public/js/layout.js";
+import { fakePage, flatten } from "./dom-fakes.mjs";
 import { INDEX_HTML, PUBLIC_DIR } from "./importmap.mjs";
 
 const require = createRequire(import.meta.url);
@@ -109,6 +110,7 @@ describe("la page servie par le vrai serveur", () => {
 
     const files = [
       "css/app.css",
+      "css/fallback.css",
       "js/main.js",
       ...fs.readdirSync(path.join(PUBLIC_DIR, "js")).map((f) => `js/${f}`),
       "vendor/three/build/three.module.js",
@@ -210,5 +212,59 @@ describe("main.js face au vrai serveur (intégration)", () => {
     assert.ok(found, "l'événement reçu pendant la lecture est appliqué");
     assert.equal(found.status, "in-test");
     assert.equal(found.station, "test");
+  });
+});
+
+describe("repli texte face au vrai serveur (intégration)", () => {
+  test("boot() en ?mode=texte : la liste suit une ligne ajoutée au journal, sans rechargement", async () => {
+    const server = await startFixtureServer();
+    // `boot` ne rend pas le minuteur de `connect` : on l'empêche de garder le processus de test en vie.
+    const savedSetInterval = globalThis.setInterval;
+    globalThis.setInterval = (fn, ms) => savedSetInterval(fn, ms).unref();
+    cleanups.push(() => {
+      globalThis.setInterval = savedSetInterval;
+    });
+    const NodeEventSource = nodeEventSource();
+    const sources = [];
+    class PageEventSource extends NodeEventSource {
+      constructor(url) {
+        super(server.baseUrl + url);
+        sources.push(this);
+      }
+    }
+    cleanups.push(() => sources.forEach((source) => source.close()));
+    const warnings = [];
+    const win = {
+      location: { search: "?mode=texte" },
+      console: { warn: (m) => warnings.push(m), error: (m) => warnings.push(m) },
+      EventSource: PageEventSource,
+      fetch: (url, options) => fetch(server.baseUrl + url, options),
+    };
+    const page = fakePage();
+    await boot(page, win);
+    assert.equal(page.elements.scene.hidden, true);
+    assert.equal(page.elements.repli.hidden, false);
+
+    const repli = page.elements.repli;
+    const section = (heading) => repli.children.find((el) => el.children[0]?.textContent === heading);
+    const rowsOf = (heading) => flatten(section(heading) ?? { children: [] }).filter((el) => el.className === "repli-titre").map((el) => el.textContent);
+    await until(() => repli.children.length > 0, 5000, "liste affichée");
+    assert.equal(page.elements.depot.textContent, "o/r");
+
+    // Une feature qui n'est ni terminée ni bloquée : on la fait avancer vers la revue.
+    const all = ["Cadrage", "Roadmap", "Développement", "Vérification", "Test", "Merge", "Release"].flatMap((heading) => rowsOf(heading).map((text) => ({ heading, text })));
+    assert.ok(all.length > 0, "la liste montre les features du dépôt");
+    const target = all.find(({ heading }) => ["Roadmap", "Développement", "Test"].includes(heading));
+    assert.ok(target, JSON.stringify(all));
+    const number = Number(/^#(\d+)/.exec(target.text)[1]);
+    assert.ok(!rowsOf("Vérification").includes(target.text));
+
+    fs.appendFileSync(
+      server.journal,
+      JSON.stringify({ v: 1, ts: new Date().toISOString(), src: "hook", type: "feature.status", sessionId: SESSION, issue: number, status: "in-review" }) + "\n",
+    );
+    await until(() => rowsOf("Vérification").includes(target.text), 3000, `#${number} apparaît dans « Vérification »`);
+    assert.ok(!rowsOf(target.heading).includes(target.text), "et a quitté sa station précédente");
+    assert.deepEqual(warnings, []);
   });
 });

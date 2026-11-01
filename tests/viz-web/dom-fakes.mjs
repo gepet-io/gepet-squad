@@ -123,3 +123,27 @@ export function fakeWindow(width = 800, height = 600) {
 export function fakeContainer(width = 800, height = 600) {
   return fakeElement("div", { clientWidth: width, clientHeight: height });
 }
+
+/**
+ * Page factice de viz/public/index.html : `getElementById` renvoie les éléments dont main.js (`boot`) a besoin.
+ * `elements.repli.hidden` vaut `true` au départ, comme dans la page. `getContext` : celui des canvas créés (la sonde WebGL
+ * de `webglAvailable`) ; par défaut, un contexte factice (WebGL disponible).
+ */
+export function fakePage({ getContext = () => ({}) } = {}) {
+  const elements = {};
+  for (const [id, tag] of [["connexion", "span"], ["depot", "span"], ["scene", "main"], ["legende", "ul"], ["repli", "section"]]) {
+    elements[id] = fakeElement(tag, { id, hidden: id === "repli", dataset: {} });
+  }
+  return {
+    elements,
+    createElement: (tag) => (tag === "canvas" ? fakeElement(tag, { getContext }) : fakeElement(tag)),
+    getElementById: (id) => elements[id] ?? null,
+  };
+}
+
+/** Un faux élément et tous ses descendants, dans l'ordre du document. */
+export function flatten(element, out = []) {
+  out.push(element);
+  for (const child of element.children) flatten(child, out);
+  return out;
+}

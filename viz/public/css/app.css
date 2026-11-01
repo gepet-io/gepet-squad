@@ -35,8 +35,7 @@ body {
   display: block;
 }
 
-.scene[hidden],
-.repli[hidden] {
+.scene[hidden] {
   display: none;
 }
 
@@ -165,37 +164,6 @@ body {
   white-space: normal;
   overflow-wrap: anywhere;
   text-shadow: none;
-}
-
-/* Repli texte quand WebGL n'est pas disponible. */
-.repli {
-  position: absolute;
-  inset: 0;
-  overflow: auto;
-  padding: 24px 24px 24px 250px;
-  columns: 260px;
-  column-gap: 24px;
-}
-
-.repli section {
-  break-inside: avoid;
-  margin-bottom: 16px;
-}
-
-.repli h2 {
-  margin: 0 0 4px;
-  font-size: 14px;
-}
-
-.repli ul {
-  margin: 0;
-  padding-left: 18px;
-}
-
-.repli .empty {
-  color: var(--muted);
-  list-style: none;
-  margin-left: -18px;
 }
 
 @media (prefers-reduced-motion: reduce) {
