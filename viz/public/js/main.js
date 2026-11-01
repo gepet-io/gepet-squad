@@ -153,8 +153,12 @@ export function connect({
  * l'URL porte `?mode=texte`, ou quand WebGL est indisponible (contexte impossible à créer, ou scène qui échoue au démarrage).
  * @param {Document} doc
  * @param {Window} win
+ * @param {object} [options]
+ * @param {(scene: object) => unknown} [options.onScene] appelé une fois, avec la valeur de `createScene`, quand la scène
+ *   et ses étiquettes sont créées et avant le premier `scene.update` ; attendu s'il renvoie une promesse. Jamais appelé
+ *   sans scène (repli texte). Une exception levée ici bascule sur le repli : le crochet doit attraper ses erreurs.
  */
-export async function boot(doc = globalThis.document, win = globalThis.window) {
+export async function boot(doc = globalThis.document, win = globalThis.window, { onScene } = {}) {
   const els = {
     connection: doc.getElementById("connexion"),
     repo: doc.getElementById("depot"),
@@ -204,6 +208,7 @@ export async function boot(doc = globalThis.document, win = globalThis.window) {
     const [sceneModule, labelsModule] = await Promise.all([import("./scene.js"), import("./labels.js")]);
     scene = sceneModule.createScene({ container: els.scene, window: win });
     labelsModule.createLabels(scene, { container: els.scene, document: doc });
+    await onScene?.(scene);
     if (latest !== null) scene.update(latest, []);
   } catch (error) {
     // Le moteur de rendu n'a pas pu démarrer (ou module de rendu illisible) : la page reste utile, en texte.
@@ -212,7 +217,22 @@ export async function boot(doc = globalThis.document, win = globalThis.window) {
   }
 }
 
+/**
+ * Ajoute à la scène les agents lumineux (agents.js, chargé à la demande). Couche facultative : si elle échoue, la scène
+ * reste affichée, sans agents, et l'erreur est signalée dans la console.
+ * @param {object} scene la valeur renvoyée par `createScene`
+ * @param {Window} win
+ */
+export async function loadAgents(scene, win = globalThis.window) {
+  try {
+    const { createAgents } = await import("./agents.js");
+    createAgents(scene);
+  } catch (error) {
+    win.console.warn(`[gepet-squad-viz] agents lumineux indisponibles : ${error.message}`);
+  }
+}
+
 // Dans le navigateur uniquement : un `import` sous Node (tests) ne lance rien.
 if (typeof document !== "undefined" && typeof window !== "undefined") {
-  boot().catch((error) => console.error(`[gepet-squad-viz] ${error.message}`));
+  boot(document, window, { onScene: (scene) => loadAgents(scene, window) }).catch((error) => console.error(`[gepet-squad-viz] ${error.message}`));
 }

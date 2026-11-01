@@ -1,30 +1,38 @@
 // Scène Three.js : les 7 stations et leurs zones d'escalade (positions de layout.js), les features en un seul
 // `InstancedMesh` coloré par statut, la caméra `OrbitControls` et la boucle de rendu.
 //
-// Ce module dessine, il ne décide rien (ADR 0006) : positions, couleurs, correspondance instance -> feature, lissage des
-// déplacements et cadrage viennent de `layout.js` et `view-model.js`, purs et testés sous Node.
+// Ce module dessine, il ne décide rien (ADR 0006) : positions, couleurs, correspondance instance -> feature, interpolation
+// des déplacements et cadrage viennent de `layout.js`, `motion.js` et `view-model.js`, purs et testés sous Node.
 //
-// Points d'extension pour les couches suivantes (agents, effets : #14), sans toucher à main.js :
+// Les déplacements de features sont des interpolations (départ, arrivée, durée, courbe) décidées par `motion.js` : une
+// `feature-move` glisse d'une station à l'autre, une file qui se réarrange glisse plus brièvement. Avec
+// `prefers-reduced-motion: reduce`, le déplacement est immédiat.
+//
+// Points d'extension pour les couches suivantes (agents lumineux, effets : agents.js), sans toucher à main.js :
 //   scene.onFrame(cb)    cb(delta, elapsed) à chaque image : secondes depuis l'image précédente (au plus 0,1), secondes
 //                        depuis le démarrage de la boucle. Renvoie une fonction qui retire le rappel.
 //   scene.addLayer(obj)  ajoute un objet Three.js à la scène. Renvoie une fonction qui le retire.
 //   scene.onUpdate(cb)   cb(model, transitions) à chaque mise à jour du modèle, pour qui a besoin des données.
 //   scene.onResize(cb)   cb(width, height) quand la taille de la vue change.
+//   scene.setRender(fn)  remplace le rendu de chaque image (`renderer.render`) par `fn(delta)`, par exemple un
+//                        `EffectComposer`. Renvoie une fonction qui rétablit le rendu par défaut.
+//   scene.size()         { width, height } courants de la vue.
+//   scene.model()        le dernier modèle reçu par `update`, ou `null` (pour une couche ajoutée après la première mise à jour).
+//   scene.reducedMotion()  vrai si l'utilisateur demande moins de mouvement (`prefers-reduced-motion: reduce`, relu à
+//                        chaque appel).
 // `scene.scene`, `scene.camera`, `scene.renderer` et `scene.controls` donnent accès aux objets Three.js.
+//
+// Propriété des couches. `scene.dispose()` libère ce que la scène a créé elle-même (décor, features, rendu, contrôles) et
+// vide ses listes de rappels, mais PAS les objets ajoutés par `addLayer` : leur appelant en reste propriétaire. Il retire
+// l'objet avec la fonction renvoyée par `addLayer`, puis libère lui-même géométries, matériaux et textures
+// (`dispose()` de chacun). Même règle pour les rappels `onFrame`, `onUpdate` et `onResize` : l'appelant les retire.
 
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
 import { escaladeBoxes, layoutFeatures, stationBoxes } from "./layout.js";
-import {
-  capacityFor,
-  featureForInstance,
-  featureInstances,
-  fitCamera,
-  sceneBounds,
-  stepPositions,
-  toNdc,
-} from "./view-model.js";
+import { planTracks, sampleTracks } from "./motion.js";
+import { capacityFor, featureForInstance, featureInstances, fitCamera, sceneBounds, toNdc } from "./view-model.js";
 
 const COLORS = {
   background: 0x161b22,
@@ -76,7 +84,9 @@ function createBoxVisual(box, floorColor, edgeColor) {
  * @param {Window} [options.window] fenêtre dont on écoute `resize`
  * @param {object} [options.renderer] moteur de rendu (un `WebGLRenderer` par défaut ; injectable pour les tests)
  * @param {(camera: object, domElement: object) => object} [options.createControls] contrôles de caméra
- * @throws {Error} si WebGL n'est pas disponible (le moteur de rendu par défaut ne peut pas être créé)
+ * @throws {Error} si WebGL n'est pas disponible (le moteur de rendu par défaut ne peut pas être créé), ou si la
+ *   construction échoue plus loin (contrôles de caméra, par exemple) : le moteur de rendu et le canvas déjà créés sont
+ *   alors libérés avant que l'erreur ne remonte, puisque l'appelant n'a pas la scène pour le faire.
  */
 export function createScene({
   container,
@@ -84,6 +94,17 @@ export function createScene({
   renderer = createRenderer(),
   createControls = defaultControls,
 } = {}) {
+  try {
+    return buildScene({ container, win, renderer, createControls });
+  } catch (error) {
+    renderer.setAnimationLoop?.(null);
+    renderer.dispose?.();
+    renderer.domElement?.remove?.();
+    throw error;
+  }
+}
+
+function buildScene({ container, win, renderer, createControls }) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(COLORS.background);
   scene.add(new THREE.HemisphereLight(0xdde7ff, 0x1c2230, 1.6));
@@ -109,8 +130,10 @@ export function createScene({
     height: container.clientHeight || win?.innerHeight || 1,
   });
   const resizeListeners = new Set();
+  let viewSize = sizeOf();
   function resize(width, height) {
     const size = width === undefined ? sizeOf() : { width, height };
+    viewSize = size;
     renderer.setSize(size.width, size.height);
     camera.aspect = size.width / size.height;
     camera.updateProjectionMatrix();
@@ -128,7 +151,6 @@ export function createScene({
   controls.update();
 
   const onWindowResize = () => resize();
-  win?.addEventListener?.("resize", onWindowResize);
 
   // --- Features : un seul InstancedMesh ---------------------------------------------------------------------------------
   const featureGeometry = new THREE.BoxGeometry(1, 1, 1);
@@ -139,8 +161,13 @@ export function createScene({
   let capacity = 0;
   let instances = []; // dans l'ordre des instances
   let targets = new Map(); // numéro -> position cible
-  let current = new Map(); // numéro -> position affichée (lissée)
+  let current = new Map(); // numéro -> position affichée (interpolée)
+  let tracks = new Map(); // numéro -> interpolation en cours (motion.js)
+  let clock = 0; // secondes de boucle (somme des deltas bornés) : l'horloge des interpolations
+  let latestModel = null;
   let dirty = false;
+  const reducedQuery = win?.matchMedia?.("(prefers-reduced-motion: reduce)") ?? null;
+  const reducedMotion = () => reducedQuery?.matches === true;
 
   function ensureMesh(count) {
     const wanted = capacityFor(count, capacity);
@@ -174,12 +201,16 @@ export function createScene({
   const updateListeners = new Set();
   /** Met la scène à jour avec le modèle de state.js. */
   function update(model, transitions = []) {
+    latestModel = model;
     const positions = layoutFeatures(model);
     instances = featureInstances(model, positions);
     targets = new Map(instances.map((instance) => [instance.number, instance.position]));
     ensureMesh(instances.length);
-    // Les features nouvelles apparaissent à leur place ; celles qui changent de station s'y déplacent.
-    current = stepPositions(current, targets, 0).positions;
+    // Les features nouvelles apparaissent à leur place ; celles dont la cible change glissent depuis leur position affichée.
+    tracks = planTracks(tracks, current, targets, transitions, clock, { reduced: reducedMotion() });
+    const sampled = sampleTracks(tracks, targets, clock);
+    current = sampled.positions;
+    tracks = sampled.tracks;
     dirty = true;
     for (const cb of [...updateListeners]) cb(model, transitions);
   }
@@ -201,20 +232,27 @@ export function createScene({
 
   // --- Boucle de rendu -----------------------------------------------------------------------------------------------------
   const frameListeners = new Set();
+  let renderFrame = null;
   let last = null;
   function frame(timeMs) {
     const delta = last === null ? 0 : Math.min(Math.max((timeMs - last) / 1000, 0), MAX_FRAME_DELTA);
     last = timeMs;
+    clock += delta;
     controls.update?.();
-    const step = stepPositions(current, targets, delta);
-    current = step.positions;
-    if ((step.moving || dirty) && mesh !== null) {
+    // Réduction de mouvement activée en cours de route : les déplacements en cours se terminent aussitôt.
+    const sampled = sampleTracks(tracks, targets, reducedMotion() ? Infinity : clock);
+    current = sampled.positions;
+    tracks = sampled.tracks;
+    if ((sampled.moving || dirty) && mesh !== null) {
       writeInstances();
-      dirty = step.moving;
+      dirty = sampled.moving;
     }
     for (const cb of [...frameListeners]) cb(delta, timeMs / 1000);
-    renderer.render(scene, camera);
+    if (renderFrame !== null) renderFrame(delta);
+    else renderer.render(scene, camera);
   }
+  // En dernier : une construction qui échoue plus haut n'a encore rien branché sur la fenêtre.
+  win?.addEventListener?.("resize", onWindowResize);
   renderer.setAnimationLoop(frame);
 
   return {
@@ -249,9 +287,19 @@ export function createScene({
       scene.add(object);
       return () => scene.remove(object);
     },
+    setRender(fn) {
+      renderFrame = fn;
+      return () => {
+        if (renderFrame === fn) renderFrame = null;
+      };
+    },
+    size: () => ({ ...viewSize }),
+    model: () => latestModel,
+    reducedMotion,
     dispose() {
       renderer.setAnimationLoop(null);
       win?.removeEventListener?.("resize", onWindowResize);
+      renderFrame = null;
       frameListeners.clear();
       updateListeners.clear();
       resizeListeners.clear();
