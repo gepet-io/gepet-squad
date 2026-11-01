@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.4.0 — 2026-11-01
+
+Vue 3D temps réel du projet et commande `/gepet-squad:gepet-squad-viz` : dernière brique de la visualisation (jalons M1 à M3).
+
+**Vue 3D** (page servie par `viz/server.cjs`, lecture seule) :
+
+- une scène Three.js avec les 7 stations du pipeline, les features (colorées par statut) en file devant leur station, et les agents sous forme de sphères lumineuses (bloom) dont la couleur dépend du type d'agent, plus un badge de tentative sur les features renvoyées en correctif ;
+- des transitions animées : une feature glisse d'une station à l'autre quand son statut change, les agents apparaissent et s'estompent avec fondu et pulsation ; avec `prefers-reduced-motion: reduce`, les déplacements sont immédiats ;
+- une mise à jour en continu par le flux SSE, recalée sur l'instantané GitHub (qui fait foi) toutes les 60 s ;
+- un **repli texte** (pour chaque station, ses features et ses agents actifs) quand l'URL porte `?mode=texte` ou quand WebGL n'est pas disponible ;
+- **Three.js 0.187.0 vendorisé** dans `viz/public/vendor/three/` (licence MIT incluse) : aucune dépendance npm ni accès réseau à l'exécution.
+
+**Commande `/gepet-squad:gepet-squad-viz [stop]`** (skill `gepet-squad-viz`, invocation manuelle uniquement) :
+
+- sans argument : vérifie la présence de `.gepet-squad.json` (dans le dossier courant ou un parent) et Node ≥ 22, réaffiche l'URL d'un serveur déjà lancé, sinon démarre `viz/server.cjs` en arrière-plan puis attend l'URL par `status --wait 20` ;
+- `stop` : arrête le serveur du projet par `viz/server.cjs stop` et rapporte le résultat ;
+- le skill ne manipule aucun pid et n'envoie aucun signal : il appelle uniquement la CLI du serveur.
+
+**Correction (#33).** « Serveur vivant » a désormais une seule définition, partagée par `status`, le démarrage et `stop` : le pid du verrou existe **et** `GET /health` sur le port du verrou annonce ce même pid. Un pid réattribué à un autre processus après un arrêt brutal n'est donc plus pris pour le serveur, et `stop` ne lui envoie aucun signal.
+
+**Limites connues :**
+
+- les couleurs et le seuil du bloom ont été réglés sur un rendu logiciel (sans GPU) : à ajuster sur un vrai GPU si le rendu paraît trop clair ou trop sombre ;
+- le respect de `prefers-reduced-motion` n'a pas été vérifié dans un vrai navigateur ;
+- le repli sans WebGL réel n'est couvert que par des tests unitaires et par Edge sans GPU.
+
 ## 0.3.0 — 2026-10-31
 
 Serveur local temps réel et modèle client : deuxième brique de la vue du projet (la page 3D et la commande `/gepet-squad-viz` arrivent en 0.4.0).
