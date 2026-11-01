@@ -78,7 +78,7 @@ describe("index.html : CSP de l'ADR 0005", () => {
 
   test("les fichiers référencés sont servis par la liste blanche de viz/lib/http.cjs", () => {
     const refs = [...html.matchAll(/(?:src|href)\s*=\s*"([^"#]+)"/g)].map((m) => m[1]).filter((ref) => !ref.startsWith("data:"));
-    assert.ok(refs.includes("css/app.css") && refs.includes("js/main.js"));
+    assert.ok(refs.includes("css/app.css") && refs.includes("css/fallback.css") && refs.includes("js/main.js"));
     for (const ref of refs) {
       const served = resolveStaticPath(PUBLIC_DIR, "/" + ref);
       assert.equal(served.status, 200, ref);
@@ -95,9 +95,11 @@ describe("index.html : CSP de l'ADR 0005", () => {
     assert.match(html, /id="repli"[^>]*\shidden/, "le repli texte est masqué tant que la scène fonctionne");
   });
 
-  test("la feuille de style ne charge rien d'externe", () => {
-    const css = fs.readFileSync(path.join(PUBLIC_DIR, "css/app.css"), "utf8");
-    assert.doesNotMatch(css, /@import|url\(\s*["']?(?:https?:)?\/\//i);
+  test("les feuilles de style ne chargent rien d'externe", () => {
+    for (const file of ["css/app.css", "css/fallback.css"]) {
+      const css = fs.readFileSync(path.join(PUBLIC_DIR, file), "utf8");
+      assert.doesNotMatch(css, /@import|url\(\s*["']?(?:https?:)?\/\//i, file);
+    }
   });
 });
 
@@ -119,8 +121,8 @@ describe("modules de js/ : imports", () => {
     });
   }
 
-  test("main.js, scene.js, labels.js, ui.js, view-model.js et sync.js existent (et chaque module a un seul rôle)", () => {
-    for (const file of ["main.js", "scene.js", "labels.js", "ui.js", "view-model.js", "sync.js", "state.js", "layout.js"]) {
+  test("main.js, scene.js, labels.js, ui.js, fallback.js, view-model.js et sync.js existent (et chaque module a un seul rôle)", () => {
+    for (const file of ["main.js", "scene.js", "labels.js", "ui.js", "fallback.js", "view-model.js", "sync.js", "state.js", "layout.js"]) {
       assert.ok(jsFiles.includes(file), file);
     }
   });
@@ -160,7 +162,7 @@ describe("modules de js/ : interdits", () => {
   test("main.js ne charge `three` qu'à la demande : aucun import statique de scene.js ni de labels.js", () => {
     const source = code("main.js");
     const statics = [...source.matchAll(/^import\b[^;]*?from\s*["']([^"']+)["']/gm)].map((m) => m[1]);
-    assert.deepEqual(statics.sort(), ["./state.js", "./sync.js", "./ui.js"]);
+    assert.deepEqual(statics.sort(), ["./fallback.js", "./state.js", "./sync.js", "./ui.js"]);
     assert.match(source, /import\(\s*"\.\/scene\.js"\s*\)/);
     assert.match(source, /import\(\s*"\.\/labels\.js"\s*\)/);
   });
