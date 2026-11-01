@@ -87,6 +87,8 @@ export function fakeRenderer({ width = 800, height = 600 } = {}) {
     setSize(w, h) {
       renderer.sizes.push([w, h]);
     },
+    getPixelRatio: () => 1,
+    setRenderTarget() {},
     render() {
       renderer.renders += 1;
     },
@@ -100,9 +102,21 @@ export function fakeRenderer({ width = 800, height = 600 } = {}) {
   return renderer;
 }
 
-/** Fenêtre factice : `addEventListener("resize", …)`, `innerWidth` et `innerHeight`. */
+/**
+ * Fenêtre factice : `addEventListener("resize", …)`, `innerWidth` et `innerHeight`. `window.media.reduced` pilote
+ * `matchMedia("(prefers-reduced-motion: reduce)")`, relu à chaque lecture de `.matches` comme dans un navigateur.
+ */
 export function fakeWindow(width = 800, height = 600) {
-  return fakeElement("window", { innerWidth: width, innerHeight: height });
+  const media = { reduced: false, queries: [] };
+  return fakeElement("window", {
+    innerWidth: width,
+    innerHeight: height,
+    media,
+    matchMedia(query) {
+      media.queries.push(query);
+      return { media: query, get matches() { return query.includes("prefers-reduced-motion: reduce") && media.reduced; } };
+    },
+  });
 }
 
 /** Conteneur factice d'une taille donnée. */
