@@ -364,6 +364,38 @@ describe("cycle de vie", () => {
     assert.equal(renderer.domElement.removed, true);
   });
 
+  test("si la construction échoue après la création du canvas (contrôles de caméra), le moteur de rendu et le canvas sont libérés", () => {
+    const container = fakeContainer();
+    const renderer = fakeRenderer();
+    const win = fakeWindow();
+    const failure = new Error("contrôles indisponibles");
+    assert.throws(
+      () =>
+        createScene({
+          container,
+          renderer,
+          window: win,
+          createControls() {
+            assert.deepEqual(container.children, [renderer.domElement], "le canvas est déjà dans la page quand les contrôles échouent");
+            throw failure;
+          },
+        }),
+      (error) => error === failure,
+      "l'erreur d'origine remonte, inchangée",
+    );
+    assert.equal(renderer.disposed, true, "renderer.dispose() appelé");
+    assert.equal(renderer.domElement.removed, true, "canvas retiré du DOM");
+    assert.equal(renderer.loop === undefined || renderer.loop === null, true, "aucune boucle de rendu ne tourne");
+    assert.equal(win.listenerCount("resize"), 0, "aucun écouteur laissé sur la fenêtre");
+  });
+
+  test("un échec de construction n'appelle pas dispose sur un moteur de rendu sans méthode dispose (injection minimale)", () => {
+    const renderer = fakeRenderer();
+    delete renderer.dispose;
+    assert.throws(() => createScene({ container: fakeContainer(), renderer, window: fakeWindow(), createControls: () => { throw new Error("x"); } }), /x/);
+    assert.equal(renderer.domElement.removed, true);
+  });
+
   test("sans WebGL, createScene lève une erreur (main.js bascule alors sur le repli texte)", () => {
     assert.throws(() => createScene({ container: fakeContainer(), window: fakeWindow() }));
   });

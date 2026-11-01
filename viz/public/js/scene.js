@@ -84,7 +84,9 @@ function createBoxVisual(box, floorColor, edgeColor) {
  * @param {Window} [options.window] fenêtre dont on écoute `resize`
  * @param {object} [options.renderer] moteur de rendu (un `WebGLRenderer` par défaut ; injectable pour les tests)
  * @param {(camera: object, domElement: object) => object} [options.createControls] contrôles de caméra
- * @throws {Error} si WebGL n'est pas disponible (le moteur de rendu par défaut ne peut pas être créé)
+ * @throws {Error} si WebGL n'est pas disponible (le moteur de rendu par défaut ne peut pas être créé), ou si la
+ *   construction échoue plus loin (contrôles de caméra, par exemple) : le moteur de rendu et le canvas déjà créés sont
+ *   alors libérés avant que l'erreur ne remonte, puisque l'appelant n'a pas la scène pour le faire.
  */
 export function createScene({
   container,
@@ -92,6 +94,17 @@ export function createScene({
   renderer = createRenderer(),
   createControls = defaultControls,
 } = {}) {
+  try {
+    return buildScene({ container, win, renderer, createControls });
+  } catch (error) {
+    renderer.setAnimationLoop?.(null);
+    renderer.dispose?.();
+    renderer.domElement?.remove?.();
+    throw error;
+  }
+}
+
+function buildScene({ container, win, renderer, createControls }) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(COLORS.background);
   scene.add(new THREE.HemisphereLight(0xdde7ff, 0x1c2230, 1.6));
@@ -138,7 +151,6 @@ export function createScene({
   controls.update();
 
   const onWindowResize = () => resize();
-  win?.addEventListener?.("resize", onWindowResize);
 
   // --- Features : un seul InstancedMesh ---------------------------------------------------------------------------------
   const featureGeometry = new THREE.BoxGeometry(1, 1, 1);
@@ -239,6 +251,8 @@ export function createScene({
     if (renderFrame !== null) renderFrame(delta);
     else renderer.render(scene, camera);
   }
+  // En dernier : une construction qui échoue plus haut n'a encore rien branché sur la fenêtre.
+  win?.addEventListener?.("resize", onWindowResize);
   renderer.setAnimationLoop(frame);
 
   return {

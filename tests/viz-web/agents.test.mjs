@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { apply, init } from "../../viz/public/js/state.js";
 import { escaladeBox, boxContains, layoutAgents, layoutFeatures } from "../../viz/public/js/layout.js";
 import { AGENT_COLORS, BLOOM, easeInOutCubic, FADE_SECONDS, GLOW_LUMINANCE, PULSE_PERIOD_SECONDS, agentColor, agentLook, glowScale, moveDuration, retryBadgeText } from "../../viz/public/js/motion.js";
-import { fakeContainer, fakeDocument, fakeElement, fakeRenderer, fakeWindow } from "./dom-fakes.mjs";
+import { fakeContainer, fakeDocument, fakeElement, fakePage, fakeRenderer, fakeWindow } from "./dom-fakes.mjs";
 import { agent, evt, feature, stateOf } from "./support.mjs";
 
 let THREE;
@@ -607,10 +607,8 @@ describe("main.js : le crochet onScene et le chargement des agents", () => {
     assert.match(warnings[0], /agents lumineux indisponibles/);
   });
 
-  test("boot n'appelle onScene que si la scène a pu être créée (ici : pas de WebGL, donc repli texte)", async () => {
-    const elements = new Map(["connexion", "depot", "scene", "legende", "repli"].map((id) => [id, fakeElement("div", { dataset: {} })]));
-    elements.get("repli").hidden = true;
-    const doc = { getElementById: (id) => elements.get(id), createElement: (tag) => fakeElement(tag) };
+  test("boot n'appelle onScene que si la scène a pu être créée (ici : le moteur de rendu échoue, donc repli texte)", async () => {
+    const page = fakePage(); // WebGL « disponible » pour la sonde, mais createScene échoue : pas de vrai contexte sous Node
     class FakeSource {
       readyState = 0;
       addEventListener() {}
@@ -618,9 +616,10 @@ describe("main.js : le crochet onScene et le chargement des agents", () => {
     }
     const warnings = [];
     const win = {
-      fetch: async () => ({ ok: true, json: async () => stateOf() }),
+      location: { search: "" },
+      fetch: async () => ({ ok: true, status: 200, json: async () => stateOf() }),
       EventSource: FakeSource,
-      console: { warn: (m) => warnings.push(m) },
+      console: { warn: (m) => warnings.push(m), error: (m) => warnings.push(m) },
       addEventListener() {},
     };
     let called = 0;
@@ -629,13 +628,13 @@ describe("main.js : le crochet onScene et le chargement des agents", () => {
     const timers = [];
     globalThis.setInterval = (...args) => timers.push(realSetInterval(...args)) && timers.at(-1);
     try {
-      await boot(doc, win, { onScene: () => (called += 1) });
+      await boot(page, win, { onScene: () => (called += 1) });
     } finally {
       globalThis.setInterval = realSetInterval;
       timers.forEach((id) => clearInterval(id));
     }
     assert.equal(called, 0);
-    assert.equal(elements.get("repli").hidden, false, "repli texte affiché");
+    assert.equal(page.elements.repli.hidden, false, "repli texte affiché");
     assert.ok(warnings.some((m) => m.includes("scène 3D indisponible")));
   });
 });
