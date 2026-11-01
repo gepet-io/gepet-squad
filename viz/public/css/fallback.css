@@ -1,0 +1,141 @@
+/* Vue texte de repli (js/fallback.js) : sans WebGL, ou avec ?mode=texte. Chargée après app.css. La CSP n'autorise que
+   les feuilles de style du site (style-src 'self') : les couleurs des statuts passent par des classes, pas par un attribut style.
+   Lisibilité : le statut est toujours écrit en toutes lettres, la couleur n'est qu'un renfort. */
+
+.repli[hidden] {
+  display: none;
+}
+
+/* Le panneau d'état quitte sa position flottante (elle masquerait la liste) et prend place en tête de page. */
+body:has(.repli:not([hidden])) .panel {
+  position: static;
+  max-width: 420px;
+  margin: 12px;
+}
+
+/* `flow-root` : la marge du panneau ne déborde pas du corps de page (sinon la page défile pour rien). */
+body:has(.repli:not([hidden])) {
+  display: flow-root;
+  height: auto;
+  min-height: 100%;
+}
+
+.repli {
+  max-width: 1200px;
+  padding: 4px 12px 32px;
+  columns: 300px;
+  column-gap: 28px;
+}
+
+.repli-resume {
+  column-span: all;
+  margin: 0 0 14px;
+  color: var(--muted);
+}
+
+.repli-station {
+  break-inside: avoid;
+  margin: 0 0 18px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.repli-station h2 {
+  margin: 0 0 6px;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.repli-vide {
+  margin: 0;
+  color: var(--muted);
+}
+
+.repli-liste {
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.repli-liste li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  padding: 3px 0;
+}
+
+.repli-titre {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.repli-badge {
+  flex: none;
+  padding: 0 7px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.repli-retry {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+/* Les agents actifs : un liseré à gauche les distingue des features. */
+.repli-agents {
+  padding-left: 10px;
+  border-left: 3px solid var(--border);
+}
+
+.repli-phase {
+  color: var(--fg);
+}
+
+/* Pastille de couleur du statut (mêmes couleurs que la légende et la scène). */
+.repli-statut::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: #6e7681;
+}
+
+.statut-backlog::before {
+  background: #d4d4d4;
+}
+
+.statut-ready::before {
+  background: #0e8a16;
+}
+
+.statut-in-progress::before {
+  background: #1d76db;
+}
+
+.statut-in-review::before {
+  background: #5319e7;
+}
+
+.statut-in-test::before {
+  background: #fbca04;
+}
+
+.statut-changes-requested::before {
+  background: #d93f0b;
+}
+
+.statut-blocked::before {
+  background: #b60205;
+}
+
+.statut-done::before {
+  background: #0b6e2b;
+}

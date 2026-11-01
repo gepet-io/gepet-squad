@@ -29,3 +29,6 @@ jobs:
       - name: Syntaxe de scripts/bootstrap.sh
         shell: bash
         run: bash -n scripts/bootstrap.sh
+      - name: Syntaxe de scripts/vendor-three.sh
+        shell: bash
+        run: bash -n scripts/vendor-three.sh

@@ -4,7 +4,8 @@
 // Les fonctions de décision sont pures (isAllowedHost, isAllowedMethod, resolveStaticPath, mimeFor, importmapHash,
 // buildCsp, buildHeaders) et testées sans réseau. Seul createRequestListener touche au disque et à la réponse.
 //
-// Routes : GET/HEAD /health -> { ok: true } ; GET/HEAD /state -> état fusionné ; GET /events -> flux SSE (voir
+// Routes : GET/HEAD /health -> { ok: true, pid: <pid du serveur> } (le pid fait de /health la preuve de vie du verrou,
+// voir lib/lock.cjs) ; GET/HEAD /state -> état fusionné ; GET /events -> flux SSE (voir
 // createSseHub) ; tout le reste -> fichier statique du dossier public. Ordre des contrôles : Host (421), méthode (405),
 // cible de la requête (400), puis le routage.
 // Aucune réponse ne porte d'en-tête CORS, et toutes portent la CSP, `nosniff` et `Referrer-Policy: no-referrer`.
@@ -330,7 +331,7 @@ function createRequestListener({ getPort, getState, publicDir, csp, openEvents, 
     const pathname = req.url.split(/[?#]/, 1)[0];
     if (pathname === "/health") {
       return send(req, res, 200, {
-        body: JSON.stringify({ ok: true }),
+        body: JSON.stringify({ ok: true, pid: process.pid }),
         contentType: MIME_TYPES[".json"],
         noStore: true,
       });

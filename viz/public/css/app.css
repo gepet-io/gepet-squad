@@ -1,0 +1,173 @@
+/* Page de visualisation. La CSP n'autorise que cette feuille de style (style-src 'self') : pas de style en ligne. */
+
+:root {
+  color-scheme: dark;
+  --bg: #161b22;
+  --panel: rgba(22, 27, 34, 0.82);
+  --border: #30363d;
+  --fg: #e6edf3;
+  --muted: #8b949e;
+  --ok: #3fb950;
+  --warn: #d29922;
+  --bad: #f85149;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+.scene {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+}
+
+.scene canvas {
+  display: block;
+}
+
+.scene[hidden] {
+  display: none;
+}
+
+/* Panneau d'état, au-dessus de la scène. */
+.panel {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 10;
+  min-width: 190px;
+  padding: 10px 14px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  backdrop-filter: blur(6px);
+}
+
+.panel h1 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.panel p {
+  margin: 2px 0 0;
+  color: var(--muted);
+}
+
+.connexion {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+#connexion[data-state="open"] {
+  color: var(--ok);
+}
+
+#connexion[data-state="reconnecting"],
+#connexion[data-state="connecting"] {
+  color: var(--warn);
+}
+
+#connexion[data-state="closed"] {
+  color: var(--bad);
+}
+
+.connexion:has(#connexion[data-state="open"]) .dot {
+  background: var(--ok);
+}
+
+.connexion:has(#connexion[data-state="reconnecting"]) .dot,
+.connexion:has(#connexion[data-state="connecting"]) .dot {
+  background: var(--warn);
+}
+
+.connexion:has(#connexion[data-state="closed"]) .dot {
+  background: var(--bad);
+}
+
+.legende {
+  margin: 10px 0 0;
+  padding: 8px 0 0;
+  border-top: 1px solid var(--border);
+  list-style: none;
+  font-size: 12px;
+}
+
+.legende li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 3px;
+}
+
+.swatch {
+  flex: none;
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+}
+
+/* Étiquettes de la scène (CSS2DRenderer) : la couche ne capte jamais la souris, pour que les contrôles de la caméra
+   et le survol des features fonctionnent à travers elle. */
+.labels {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.label {
+  color: var(--fg);
+  font-size: 13px;
+  white-space: nowrap;
+  text-shadow: 0 1px 3px #000;
+}
+
+.label-station {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.label-escalade {
+  color: #e29aa0;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.label-feature {
+  max-width: 320px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: rgba(13, 17, 23, 0.92);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-shadow: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    scroll-behavior: auto;
+  }
+}

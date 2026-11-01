@@ -1,4 +1,4 @@
-// Pureté de viz/public/js/state.js et layout.js (ADR 0006) : ni `three`, ni DOM, ni hasard, ni horloge.
+// Pureté de viz/public/js/state.js, layout.js, view-model.js, sync.js, fallback.js et motion.js (ADR 0006) : ni `three`, ni DOM, ni hasard, ni horloge.
 // Deux contrôles complémentaires :
 //   - analyse du code source : seuls des imports relatifs, aucun identifiant du navigateur ;
 //   - exécution dans Node avec des pièges sur les globales du navigateur : tout accès à `document`, `window`, etc.
@@ -12,7 +12,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { at, ev, sse, stateOf, feature, agent } from "./support.mjs";
 
 const JS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../viz/public/js");
-const MODULES = ["state.js", "layout.js"];
+const MODULES = ["state.js", "layout.js", "view-model.js", "sync.js", "fallback.js", "motion.js"];
 
 // Le code source sans commentaires (les commentaires peuvent citer `three` ou le DOM).
 function code(file) {
