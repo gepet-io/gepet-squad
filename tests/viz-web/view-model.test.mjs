@@ -1,5 +1,5 @@
-// Tests de viz/public/js/view-model.js : couleurs des statuts, correspondance instance -> feature, lissage, cadrage,
-// repli texte. Module pur, importé sans DOM.
+// Tests de viz/public/js/view-model.js : couleurs des statuts, correspondance instance -> feature, lissage, cadrage.
+// Module pur, importé sans DOM.
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -13,7 +13,6 @@ import {
   approach,
   capacityFor,
   colorCss,
-  fallbackGroups,
   featureForInstance,
   featureInstances,
   featureLabel,
@@ -25,7 +24,7 @@ import {
   stepPositions,
   toNdc,
 } from "../../viz/public/js/view-model.js";
-import { feature, stateOf, M1, M2, milestone } from "./support.mjs";
+import { feature, stateOf } from "./support.mjs";
 
 const modelOf = (features, extra = {}) => init(stateOf({ features, ...extra }));
 const instancesOf = (model) => featureInstances(model, layoutFeatures(model));
@@ -267,34 +266,5 @@ describe("géométrie de la vue", () => {
   test("fitCamera : une emprise minuscule ne place pas la caméra sur la cible", () => {
     const bounds = { minX: -1, maxX: 1, minZ: -1, maxZ: 1, height: 1 };
     assert.ok(fitCamera(bounds).distance >= 10);
-  });
-});
-
-describe("repli texte", () => {
-  test("toutes les stations sont listées dans l'ordre, les features à leur place, l'escalade à part", () => {
-    const model = modelOf(
-      [
-        feature(1, "ready", { title: "Prête" }),
-        feature(2, "in-progress", { title: "En cours" }),
-        feature(3, "blocked", { title: "Bloquée" }),
-        feature(4, "done", { title: "<b>gras</b>" }),
-      ],
-      { milestones: [milestone(1, M1), milestone(2, M2)] },
-    );
-    const groups = fallbackGroups(model);
-    assert.deepEqual(groups.map((g) => g.id), ["cadrage", "roadmap", "dev", "verification", "test", "merge", "release", "escalade"]);
-    const byId = Object.fromEntries(groups.map((g) => [g.id, g]));
-    assert.deepEqual(byId.roadmap.features.map((f) => f.number), [1]);
-    assert.deepEqual(byId.dev.features.map((f) => f.number), [2], "la feature bloquée n'est plus dans sa station");
-    assert.deepEqual(byId.escalade.features.map((f) => f.number), [3]);
-    assert.equal(byId.merge.features[0].text, "#4 <b>gras</b>", "texte brut, jamais interprété");
-    assert.equal(byId.dev.features[0].status, "En cours");
-    assert.deepEqual(byId.cadrage.features, []);
-  });
-
-  test("sans feature bloquée, pas de groupe d'escalade", () => {
-    const groups = fallbackGroups(modelOf([feature(1, "ready")]));
-    assert.equal(groups.length, 7);
-    assert.equal(groups.some((g) => g.id === "escalade"), false);
   });
 });

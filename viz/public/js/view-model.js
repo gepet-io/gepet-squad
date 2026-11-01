@@ -1,11 +1,11 @@
 // Tout ce que la scène 3D décide, sous forme de fonctions pures : couleurs des statuts, noms affichés, correspondance
-// instance -> feature, lissage des déplacements, cadrage de la caméra, repli texte. Module pur : aucun import de
+// instance -> feature, lissage des déplacements, cadrage de la caméra. Module pur : aucun import de
 // `three`, aucun DOM, ni hasard ni horloge. `scene.js` et `labels.js` (qui importent `three`) ne font que dessiner
 // ce que ce module calcule (ADR 0006 : pas de logique de décision dans les modules de rendu).
 //
 // Les positions sont de simples objets { x, y, z } : c'est `scene.js` qui les convertit en `Vector3`.
 
-import { STATIONS, ESCALADE } from "./state.js";
+import { ESCALADE } from "./state.js";
 
 // --- Noms affichés -------------------------------------------------------------------------------------------------------
 
@@ -195,21 +195,4 @@ export function fitCamera(bounds, { fov = 45, aspect = 1.6, elevation = 52, marg
     distance,
     position: { x: target.x, y: target.y + distance * sin, z: target.z + distance * cos },
   };
-}
-
-// --- Repli texte (WebGL indisponible) ----------------------------------------------------------------------------------
-
-// Les features par station, dans l'ordre du pipeline, puis la zone d'escalade (si elle contient des features) :
-// [{ id, name, features: [{ number, text, status }] }]. Toutes les stations sont listées, même vides.
-export function fallbackGroups(model) {
-  const row = (f) => ({ number: f.number, text: featureLabel(f), status: STATUS_LABELS[f.status] ?? f.status });
-  const sorted = [...model.features].sort((a, b) => a.number - b.number);
-  const groups = STATIONS.map((id) => ({
-    id,
-    name: stationName(id),
-    features: sorted.filter((f) => !f.escalated && f.station === id).map(row),
-  }));
-  const escalated = sorted.filter((f) => f.escalated).map(row);
-  if (escalated.length > 0) groups.push({ id: ESCALADE, name: ESCALADE_NAME, features: escalated });
-  return groups;
 }

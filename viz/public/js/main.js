@@ -1,5 +1,6 @@
 // Point d'entrée de la page : charge `/state`, suit le flux `/events` et tient le modèle à jour (`state.js`), puis le
-// montre dans la scène 3D (`scene.js`, `labels.js`) ou, sans WebGL, dans un repli texte (`ui.js`).
+// montre dans la scène 3D (`scene.js`, `labels.js`) ou, sans WebGL (ou avec `?mode=texte`), dans un repli texte
+// (`fallback.js`).
 //
 // Ce module n'importe pas `three` : la scène est chargée à la demande par `boot()`, et `connect()` (toute la logique de
 // connexion) se teste sous Node avec un faux `EventSource` et un faux `fetch`.
@@ -14,6 +15,7 @@
 //   4. ensuite, chaque message est appliqué dès sa réception : `apply(model, { event: e.type, data: e.data })`.
 
 import { init, apply, tick } from "./state.js";
+import { forcesFallback, renderFallback, webglAvailable } from "./fallback.js";
 import * as ui from "./ui.js";
 import {
   MAX_PENDING_MESSAGES,
@@ -147,7 +149,8 @@ export function connect({
 }
 
 /**
- * Monte la page : connexion d'abord, puis scène 3D (chargée à la demande) ou repli texte.
+ * Monte la page : connexion d'abord, puis scène 3D (chargée à la demande) ou repli texte. Le repli est choisi quand
+ * l'URL porte `?mode=texte`, ou quand WebGL est indisponible (contexte impossible à créer, ou scène qui échoue au démarrage).
  * @param {Document} doc
  * @param {Window} win
  */
@@ -167,8 +170,25 @@ export async function boot(doc = globalThis.document, win = globalThis.window) {
     latest = model;
     ui.showRepo(els.repo, model.repo);
     if (scene !== null) scene.update(model, transitions);
-    else if (els.fallback.hidden === false) ui.renderFallback(els.fallback, model, doc);
+    else if (els.fallback.hidden === false) renderFallback(els.fallback, model, doc);
   };
+
+  // Bascule sur la vue texte : le conteneur de la scène est masqué, la liste se met à jour à chaque `render`.
+  const switchToText = () => {
+    scene?.dispose?.();
+    scene = null;
+    els.scene.hidden = true;
+    els.fallback.hidden = false;
+    if (latest !== null) renderFallback(els.fallback, latest, doc);
+  };
+
+  // La vue texte est choisie d'emblée, sans charger `three`, avec `?mode=texte` ou si le contexte WebGL ne peut pas être
+  // créé.
+  const forced = forcesFallback(win.location?.search);
+  const noWebgl = !forced && !webglAvailable(doc);
+  if (noWebgl) win.console.warn("[gepet-squad-viz] WebGL indisponible, repli texte");
+  const textOnly = forced || noWebgl;
+  if (textOnly) switchToText();
 
   // La connexion passe en premier : le flux est ouvert pendant que la scène se charge.
   connect({
@@ -178,6 +198,7 @@ export async function boot(doc = globalThis.document, win = globalThis.window) {
     onConnection: (status) => ui.showConnection(els.connection, status),
     onError: (error) => win.console.warn(`[gepet-squad-viz] ${error.message}`),
   });
+  if (textOnly) return;
 
   try {
     const [sceneModule, labelsModule] = await Promise.all([import("./scene.js"), import("./labels.js")]);
@@ -185,12 +206,9 @@ export async function boot(doc = globalThis.document, win = globalThis.window) {
     labelsModule.createLabels(scene, { container: els.scene, document: doc });
     if (latest !== null) scene.update(latest, []);
   } catch (error) {
-    // Pas de WebGL (ou module de rendu illisible) : la page reste utile, en texte.
+    // Le moteur de rendu n'a pas pu démarrer (ou module de rendu illisible) : la page reste utile, en texte.
     win.console.warn(`[gepet-squad-viz] scène 3D indisponible, repli texte : ${error.message}`);
-    scene = null;
-    els.scene.hidden = true;
-    els.fallback.hidden = false;
-    if (latest !== null) ui.renderFallback(els.fallback, latest, doc);
+    switchToText();
   }
 }
 
