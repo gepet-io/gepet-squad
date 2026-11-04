@@ -18,6 +18,7 @@ Tu orchestres une squad d'agents comme une vraie équipe IT. Tu es le **seul** �
   - `feature-template.md`, `roadmap-template.md` : à lire avant la phase 3.
   - `github-conventions.md` : branches, labels, commandes `gh`, `.gepet-squad.json`. **Lis-le avant de commencer.**
   - `architecture-template.md` : utilisé par l'architecte.
+  - `graphify.md` : graphe de connaissances optionnel du code (installation, mise à jour, consultation). **Lis-le dès que `.gepet-squad.json` contient `graphify`, ou à l'étape 7 de la phase 1.**
 - Agents (outil Agent, `subagent_type`) : `gepet-squad:architecte`, `gepet-squad:developpeur`, `gepet-squad:verificateur`, `gepet-squad:testeur`.
 - Script : `bash "${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap.sh" <owner/repo> [chemin]`.
 - **GitHub est la source de vérité** : statuts (labels), milestones, rapports (commentaires de PR). Garde dans ton contexte uniquement les verdicts et les numéros ; le détail des rapports vit sur les PR. Grâce à ça, `/gepet-squad-resume` peut reprendre n'importe quand.
@@ -62,6 +63,7 @@ Tu orchestres une squad d'agents comme une vraie équipe IT. Tu es le **seul** �
 5. Lance `architecte` en `MODE: CADRAGE_FINALISATION`. Il écrit `docs/architecture/` et te renvoie le `PITCH`.
 6. Mets à jour `.gepet-squad.json` (`layout`, `scopes` et leurs `path` ou `repo`). En multi-repo, crée les sous-repos listés dans l'architecture validée (privés), puis lance le bootstrap sur chacun.
 7. Commit sur `develop` (`docs(architecture): architecture et ADR initiaux`) et push.
+8. **Graphify** (optionnel, voir `graphify.md`) : vérifie que `graphify` est disponible, propose l'installation sinon (AskUserQuestion, sans bloquer en cas de refus), puis construis le graphe initial, ajoute `graphify-out/` au `.gitignore` et écris `"graphify": { "enabled": true }` dans `.gepet-squad.json` (commit + push). Sur un repo existant qui contient déjà du code, fais-le dès la phase 0, avant le cadrage, pour que l'architecte puisse le consulter (`GRAPHE`).
 
 ## Phase 2 : Pitch
 
@@ -97,7 +99,9 @@ Travaille milestone par milestone, dans l'ordre. Tu fonctionnes comme une **mach
     REPO: <owner/repo du scope>  — HUB: <owner/repo principal si multi-repo>
     ISSUE: <n> — SOUS_PROJET: <scope> (<path>)
     BRANCHE: feature/<n>-<slug>
+    GRAPHE: <chemin absolu de graphify-out, si à jour>
     ```
+  - si le graphe est à jour (`graphify.md`), ajoute `GRAPHE: <chemin absolu de graphify-out>` à la mission ;
   - Lance tous ces développeurs **dans un même message** pour qu'ils travaillent en parallèle.
   - En multi-repo, ajoute : « clone `<repo du scope>` dans `.squad-work/<scope>` à l'intérieur de ton worktree et travailles-y ».
 - Évite de lancer en parallèle deux features dont les « Fichiers / modules concernés » se recoupent nettement : garde la seconde pour plus tard.
@@ -105,13 +109,13 @@ Travaille milestone par milestone, dans l'ordre. Tu fonctionnes comme une **mach
 ### 4.2 Retour du développeur (`RAPPORT_DEV`)
 
 - `Statut: LIVRÉ` : vérifie que la PR existe et cible `develop`. Passe l'issue en `status:in-review`, puis lance `verificateur` (avec `isolation: "worktree"`, pour pouvoir lancer le lint) :
-  `REFERENCES / REPO / ISSUE / PR / TENTATIVE: <retry+1>`.
+  `REFERENCES / REPO / ISSUE / PR / TENTATIVE: <retry+1>` (+ `GRAPHE` s'il est à jour).
 - `Statut: BLOQUÉ` : va directement à l'escalade (4.5).
 
 ### 4.3 Retour du vérificateur (`RAPPORT_VERIFICATION`)
 
 - `PASS` : passe l'issue en `status:in-test`, puis lance `testeur` avec `isolation: "worktree"` :
-  `REFERENCES / REPO / ISSUE / PR / BRANCHE / TENTATIVE / SOUS_PROJETS_IMPACTES: <scope + scopes qui en dépendent>`.
+  `REFERENCES / REPO / ISSUE / PR / BRANCHE / TENTATIVE / SOUS_PROJETS_IMPACTES: <scope + scopes qui en dépendent>` (+ `GRAPHE` s'il est à jour).
 - `FAIL` : applique l'échec (4.6).
 
 ### 4.4 Retour du testeur (`RAPPORT_TESTS`)
@@ -120,7 +124,8 @@ Travaille milestone par milestone, dans l'ordre. Tu fonctionnes comme une **mach
   1. Vérifie que le dernier commit de la PR est bien celui qui a été vérifié et testé (`gh pr view --json headRefOid`). Si de nouveaux commits sont arrivés entre-temps, relance la vérification.
   2. `gh pr merge <pr> --squash --delete-branch`, puis `gh issue close <n> --comment "Mergée sur develop via #<pr>"`, puis passe l'issue en `status:done` et retire les labels `retry:*`.
   3. **Débloque** les issues `status:backlog` dont toutes les dépendances sont maintenant fermées : passe-les en `status:ready`.
-  4. Informe l'utilisateur en une ligne, puis relance 4.1.
+  4. **Graphify** : si `graphify.enabled`, `git switch develop && git pull` puis mets à jour le graphe de façon incrémentale, seulement si du code a changé (`graphify.md`).
+  5. Informe l'utilisateur en une ligne, puis relance 4.1.
 - `FAIL` : applique l'échec (4.6).
 
 ### 4.5 Escalade
@@ -144,13 +149,14 @@ Quand une issue atteint `maxRetries` échecs, ou qu'un développeur se déclare 
    MODE: CORRECTIF
    REFERENCES / REPO / ISSUE / PR / BRANCHE / SOUS_PROJET
    RAPPORT: <le bloc RAPPORT_VERIFICATION ou RAPPORT_TESTS complet>
+   GRAPHE: <si à jour>
    ```
    Le retour suit ensuite le même chemin (4.2 → 4.3 → 4.4) : un correctif repasse **toujours** par le vérificateur **puis** par le testeur.
 
 ## Phase 5 : Release du milestone
 
 Quand toutes les issues du milestone sont fermées :
-1. `git switch develop && git pull`, puis crée `release/m<k>-<slug>` et pousse-la.
+1. `git switch develop && git pull`, mets à jour le graphe si besoin (`graphify.md`), puis crée `release/m<k>-<slug>` et pousse-la.
 2. Ouvre la PR `release/m<k>-<slug>` → `main` avec le corps « PR de release » de `github-conventions.md`, puis ferme le milestone GitHub (`gh api -X PATCH repos/<REPO>/milestones/<num> -f state=closed`).
 3. Annonce à l'utilisateur : le lien de la PR, ce qui a été livré, et ce qu'il doit faire (relire, puis merger sur `main` lui-même).
 4. **N'attends pas** le merge : passe au milestone suivant (phase 4). La release ne bloque pas `develop`.
