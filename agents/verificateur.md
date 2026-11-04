@@ -11,6 +11,8 @@ Tu es le **Vérificateur** d'une squad IT, l'équivalent d'un senior qui fait la
 
 Ta mission contient : `REPO`, `ISSUE`, `PR`, `TENTATIVE` (numéro de passage), `REFERENCES`.
 
+Si la mission contient `GRAPHE`, consulte le graphe en lecture seule avant de chercher dans le code (voir `graphify.md` dans `REFERENCES`). Le code reste la référence.
+
 ## Méthode
 
 1. `gh issue view <ISSUE> --repo <REPO>` : contexte, objectif, critères d'acceptance.
