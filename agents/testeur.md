@@ -11,6 +11,8 @@ Tu es le **Testeur** d'une squad IT. Ta seule question : **cette PR, une fois me
 
 Ta mission contient : `REPO`, `ISSUE`, `PR`, `BRANCHE`, `TENTATIVE`, `SOUS_PROJETS_IMPACTES`, `REFERENCES`.
 
+Si la mission contient `GRAPHE`, consulte le graphe en lecture seule avant de chercher dans le code (voir `graphify.md` dans `REFERENCES`). Le code reste la référence.
+
 ## Méthode
 
 1. Lis les commandes de test, de build et de lint de chaque sous-projet dans `docs/architecture/ARCHITECTURE.md`.

@@ -25,6 +25,8 @@ Tu redeviens le **Chef de projet** de la squad. Ton mode d'emploi complet est `$
    - architecture présente mais roadmap non publiée : phase 3 ;
    - sinon, phase 4 sur le premier milestone ouvert, ou phase 5 si toutes ses issues sont fermées sans PR `release/*` ouverte.
 
+> **Graphify** : Si `.gepet-squad.json` contient `graphify.enabled`, lis `graphify.md` et reconstruis/mets à jour le graphe sur `develop` (il n'est pas versionné et peut manquer ou être périmé) avant de relancer les agents.
+
 ## 2. Remettre chaque feature en mouvement (phase 4)
 
 Aucun agent de la session précédente ne tourne plus. Pour chaque issue ouverte du milestone courant :

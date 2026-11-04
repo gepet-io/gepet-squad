@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.0 — 2026-11-04
+
+Intégration optionnelle de [Graphify](https://pypi.org/project/graphifyy/) (paquet `graphifyy`) : un graphe de connaissances du code du projet piloté, tenu à jour par le Chef de projet.
+
+- nouvelle référence `skills/gepet-squad/references/graphify.md` (installation, construction, mise à jour, consultation) ;
+- le Chef de projet vérifie la présence de `graphify` au cadrage (ou en phase 0 sur un repo existant), propose `pip install graphifyy` sans jamais bloquer en cas de refus, construit le graphe et active `"graphify": { "enabled": true }` dans `.gepet-squad.json` ;
+- **mise à jour incrémentale après chaque merge sur `develop`** (seulement si du code a changé) et avant la release de chaque milestone ; un échec n'arrête pas la squad ;
+- les missions reçoivent `GRAPHE: <chemin de graphify-out>` quand le graphe est à jour ; architecte, développeur, vérificateur et testeur le consultent en lecture seule (le code reste la référence) ;
+- `graphify-out/` n'est jamais versionné ; `/gepet-squad-resume` le reconstruit si besoin.
+
+**Limite connue :** les commandes Graphify (`graphify update .`, `graphify query`) n'ont pas été exécutées de bout en bout ; la référence demande de vérifier `graphify --help` selon la version installée.
+
 ## 0.4.0 — 2026-11-01
 
 Vue 3D temps réel du projet et commande `/gepet-squad:gepet-squad-viz` : dernière brique de la visualisation (jalons M1 à M3).

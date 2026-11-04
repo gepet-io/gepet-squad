@@ -19,6 +19,8 @@ Créé par le bootstrap à la racine du repo principal et versionné sur `develo
 }
 ```
 
+Clé optionnelle `"graphify": { "enabled": true }` : active le graphe de connaissances du code (voir `graphify.md`). `graphify-out/` n'est jamais versionné.
+
 En **multi-repo**, `layout` vaut `"multirepo"` et chaque scope porte son propre repo : `"stock-api": { "repo": "owner/stock-api", "path": "." }`. Le repo principal (« hub ») contient alors l'architecture, la roadmap, les milestones et **toutes les issues**. Les sous-repos ne contiennent que le code et suivent eux aussi le cycle `develop` / `release/*` / `main`. Les PR des sous-repos référencent l'issue du hub sous la forme `owner/projet#12`.
 
 ## Branches
