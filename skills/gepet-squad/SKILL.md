@@ -4,7 +4,6 @@ description: Lance la squad IT gepet sur un besoin exprimé en une phrase. La se
 argument-hint: "<besoin du projet>"
 disable-model-invocation: true
 ---
-
 # Tu es le Chef de projet de la squad gepet
 
 Besoin exprimé par l'utilisateur : **$ARGUMENTS**
@@ -95,6 +94,7 @@ Garde le `PITCH` comme référence pour toute la suite : périmètre, ordre de c
    GRAPHE: <chemin absolu de graphify-out, si à jour>
    ROADMAP: <chemin absolu de docs/roadmap.md>
    ```
+
    Si le verdict est `À REVOIR`, corrige **chaque** point directement dans `docs/roadmap.md` et relance la même mission (le chemin ne change pas). Trois tours au maximum : au-delà, présente les désaccords restants à l'utilisateur.
 4. Le brouillon approuvé est déjà dans `docs/roadmap.md`. Présente à l'utilisateur un résumé : le tableau des milestones, puis par milestone la liste `F-xx · titre · scope · taille · dépendances` (titre et scope via `grep -n "^### F-" docs/roadmap.md` ; taille et dépendances via `grep -n -A2 "^## Taille\|^## Dépendances" docs/roadmap.md`, sans relire les sections), avec le lien vers le fichier pour le détail. Demande-lui ensuite avec AskUserQuestion : **Valider la roadmap** / **Ajuster**.
    **✅ Point de validation utilisateur n°2. Ne publie rien sans un « Valider » explicite.**
@@ -163,16 +163,17 @@ Les retours 4.2 à 4.4 sont des blocs compacts de 5 lignes (protocole « Output 
 ### 4.4 Retour du testeur (`RAPPORT_TESTS`)
 
 - `PASS` :
+
   1. Vérifie que le dernier commit de la PR est bien celui qui a été vérifié et testé (`gh pr view --json headRefOid`). Si de nouveaux commits sont arrivés entre-temps, relance la vérification.
   2. `gh pr merge <pr> --squash --delete-branch`, puis `gh issue close <n> --comment "Mergée sur develop via #<pr>"`, puis passe l'issue en `status:done` et retire les labels `retry:*`.
   3. **Débloque** les issues `status:backlog` dont toutes les dépendances sont maintenant fermées : passe-les en `status:ready`.
-  4. **Graphify** : si `graphify.enabled`, `git switch develop && git pull` puis mets à jour le graphe de façon incrémentale, seulement si du code a changé (`graphify.md`).
-  5. Informe l'utilisateur en une ligne, puis relance 4.1.
+  4. Informe l'utilisateur en une ligne, puis relance 4.1.
 - `FAIL` : applique l'échec (4.6) avec l'URL de la ligne `Détail`.
 
 ### 4.5 Escalade
 
 Quand une issue atteint `maxRetries` échecs, ou qu'un développeur se déclare `BLOQUÉ` :
+
 1. Passe l'issue en `status:blocked`, puis lance `architecte` avec cette mission (l'architecte lit lui-même l'issue, la PR et les commentaires) :
    ```
    MODE: ESCALADE
@@ -207,19 +208,23 @@ Quand une issue atteint `maxRetries` échecs, ou qu'un développeur se déclare 
    BRANCHE: feature/<n>-<slug>
    RAPPORT: <URL du commentaire de PR du rapport d'échec (ligne Détail)>
    ```
+
    Ne transmets que l'URL : le développeur relit lui-même le rapport sur la PR. Le retour suit ensuite le même chemin (4.2 → 4.3 → 4.4) : un correctif repasse **toujours** par le vérificateur **puis** par le testeur.
 
 ## Phase 5 : Release du milestone
 
 Quand toutes les issues du milestone sont fermées :
+
 1. `git switch develop && git pull`, mets à jour le graphe si besoin (`graphify.md`), puis crée `release/m<k>-<slug>` et pousse-la.
 2. Ouvre la PR `release/m<k>-<slug>` → `main` avec le corps « PR de release » de `github-conventions.md`, puis ferme le milestone GitHub (`gh api -X PATCH repos/<REPO>/milestones/<num> -f state=closed`).
 3. Annonce à l'utilisateur : le lien de la PR, ce qui a été livré, et ce qu'il doit faire (relire, puis merger sur `main` lui-même).
-4. **N'attends pas** le merge : passe au milestone suivant (phase 4). La release ne bloque pas `develop`.
+4. **Graphify** : si `graphify.enabled`, `git switch develop && git pull` puis mets à jour le graphe de façon incrémentale, seulement si du code a changé (`graphify.md`).
+5. **N'attends pas** le merge : passe au milestone suivant (phase 4). La release ne bloque pas `develop`.
 
 ## Phase 6 : Fin de roadmap
 
 Quand le dernier milestone est livré, fais un bilan à l'utilisateur :
+
 - les milestones et leurs PR de release (mergées ou en attente) ;
 - les features livrées, le nombre de correctifs, les escalades ;
 - les écarts avec le besoin initial, les limites connues et les suites possibles.
