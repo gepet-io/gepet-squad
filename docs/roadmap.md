@@ -1,6 +1,6 @@
 # Roadmap — gepet-squad : visualisation 3D temps réel (`/gepet-squad-viz`)
 
-Référence : [ARCHITECTURE.md](architecture/ARCHITECTURE.md) et ses ADR. Versions du plugin : **0.2.0** (M1, collecte), **0.3.0** (M2, serveur), **0.4.0** (M3, vue 3D et commande).
+Référence : [ARCHITECTURE.md](architecture/ARCHITECTURE.md) et ses ADR. Versions du plugin : **0.2.0** (M1, collecte), **0.3.0** (M2, serveur), **0.4.0** (M3, vue 3D et commande), **0.6.0** (M4, économie de tokens).
 
 ## Vue d'ensemble
 | Milestone | Objectif livrable (démontrable) | Features | Sous-projets |
@@ -8,6 +8,7 @@ Référence : [ARCHITECTURE.md](architecture/ARCHITECTURE.md) et ses ADR. Versio
 | M1 — Socle et collecte | Pendant un cycle squad réel, `<git-common-dir>/gepet-squad/events.jsonl` se remplit d'événements v1 (agents, transitions `gh`), et `npm test` / `npm run lint` passent en CI sur ubuntu et windows | F-01…F-04 | repo, hooks |
 | M2 — Serveur temps réel | `node viz/server.cjs --project <dir>` sert `/state` (état fusionné journal + GitHub), pousse les nouveaux événements en SSE et gère `status` / `stop` ; le modèle client (`state.js`, `layout.js`) est prêt et testé | F-05…F-09, F-15 | viz-server, viz-web |
 | M3 — Vue 3D et commande | `/gepet-squad-viz` ouvre une page 3D qui montre le pipeline, les features et les agents lumineux en temps réel ; repli texte sans WebGL ; plugin en 0.4.0 | F-10…F-14 | viz-web, skills |
+| M4 — Économie de tokens | Rapports d'agents en 5 lignes (détail sur la PR), missions épurées à préfixe stable, état du CP lu à la demande dans GitHub et `docs/roadmap.md` ; plugin en 0.6.0 | F-16…F-18 | skills |
 
 ## Graphe de dépendances
 ```
@@ -24,7 +25,7 @@ F-12 + F-13 + F-15 → F-14
 Parallélisations prévues : F-05 ∥ F-06 puis F-07 ∥ F-09 (M2) ; F-12 ∥ F-13 (M3).
 À ne pas paralléliser : deux features qui touchent `hooks/hooks.json` (seule F-04 le modifie) ; F-07, F-08 et F-15 (mêmes fichiers `http.cjs` / `server.cjs`).
 
-Versionnage (`CLAUDE.md` : bump + CHANGELOG à chaque changement de comportement) : la **dernière feature de chaque milestone** fait le bump mineur de `.claude-plugin/plugin.json` et rédige l'entrée de `CHANGELOG.md` de son milestone ; aucune autre feature ne touche ces deux fichiers. F-04 → 0.2.0, F-15 → 0.3.0, F-14 → 0.4.0.
+Versionnage (`CLAUDE.md` : bump + CHANGELOG à chaque changement de comportement) : la **dernière feature de chaque milestone** fait le bump mineur de `.claude-plugin/plugin.json` et rédige l'entrée de `CHANGELOG.md` de son milestone ; aucune autre feature ne touche ces deux fichiers. F-04 → 0.2.0, F-15 → 0.3.0, F-14 → 0.4.0, F-18 → 0.6.0.
 
 ---
 
@@ -537,6 +538,100 @@ L'utilisateur doit pouvoir ouvrir la visualisation d'un projet squad d'une seule
 ## Taille
 S
 
+## M4 — Économie de tokens
+**Objectif** : réduire la consommation de la session principale (Chef de projet) sans perdre de traçabilité.
+**Définition de fin** : F-16 à F-18 mergées ; les agents répondent en blocs compacts, le détail vit sur les PR ; plugin en 0.6.0.
+
+### F-16 · [skills] Rapports Flash : réponses d'agents en 5 lignes max
+## Contexte
+Chaque agent poste déjà son rapport détaillé en commentaire de PR, puis le renvoie une seconde fois, en entier, au Chef de projet (CP). Le CP le garde dans son contexte et le recopie dans la mission du correctif. Sur un milestone de plusieurs features avec retries, c'est le principal poste de consommation de la session principale.
+
+## Objectif
+Protocole « Output Flash » : la réponse d'un agent au CP tient en **5 lignes maximum** (verdict, références, chiffres clés) ; le détail vit uniquement dans le commentaire de PR, que le développeur relit lui-même en correctif.
+
+## Critères d'acceptance
+- [ ] `skills/gepet-squad/references/report-formats.md` : `RAPPORT_DEV`, `RAPPORT_VERIFICATION` et `RAPPORT_TESTS` deviennent des blocs compacts (≤ 5 lignes : verdict/statut, issue/PR/tentative, une ligne de chiffres — critères tenus, tests passés/échoués —, une ligne « difficultés / points bloquants » en une phrase, et l'URL du commentaire de PR qui porte le détail). Les anciens sous-blocs détaillés passent dans une section « Contenu du commentaire de PR » (format du commentaire, inchangé sur le fond). Les blocs de l'architecte ne changent pas (ils servent aux échanges avec l'utilisateur).
+- [ ] `agents/developpeur.md` : le rapport final respecte le bloc compact ; le détail (preuve par critère, fichiers, tests) est écrit dans le commentaire de PR (« Livraison » ou « Correctifs tentative N »). En `MODE: CORRECTIF`, il lit le rapport d'échec dans le commentaire de PR indiqué par `RAPPORT` (URL ou numéro de commentaire), pas dans la mission.
+- [ ] `agents/verificateur.md` et `agents/testeur.md` : le détail complet reste dans le commentaire de PR (titres existants conservés : `🔍 Vérification — tentative k — PASS|FAIL`, `🧪 Tests de non-régression — …`) ; la réponse au CP est le bloc compact. Un FAIL indique dans le bloc compact le nombre de correctifs bloquants, pas leur détail.
+- [ ] `skills/gepet-squad/SKILL.md` §4.2 à 4.6 : le CP ne lit que le bloc compact ; en échec (§4.6), la mission `MODE: CORRECTIF` reçoit `RAPPORT: <URL du commentaire de PR>` au lieu du bloc complet ; l'escalade (§4.5) transmet à l'architecte les liens vers les commentaires, comme déjà prévu. Aucune instruction ne demande plus au CP de recopier un rapport.
+- [ ] Cohérence du contrat (`CLAUDE.md`) : pour chaque bloc modifié, l'agent producteur et la section du SKILL qui le lit parlent du même format ; `grep` ne trouve plus de renvoi à l'ancien format dans `agents/`, `skills/` et `README.md`.
+- [ ] Tests unitaires : sans objet (prompts Markdown, aucun code applicatif).
+- [ ] Tests d'intégration : `claude plugin validate .`, `bash -n scripts/bootstrap.sh` et le test du hook `guard.cjs` de `CLAUDE.md` au vert ; `npm run lint` et `npm test` au vert.
+
+## Notes techniques
+- Sous-projet : `skills`
+- Fichiers / modules concernés : `skills/gepet-squad/references/report-formats.md`, `agents/developpeur.md`, `agents/verificateur.md`, `agents/testeur.md`, `skills/gepet-squad/SKILL.md` (§4.2 à 4.6)
+- Contraintes : tout en français ; ne pas toucher `.claude-plugin/plugin.json` ni `CHANGELOG.md` (bump dans F-18) ; ne pas toucher aux lignes `tools:` des agents (modifications locales de l'utilisateur hors périmètre).
+- Le CP peut toujours relire le détail à la demande via `gh pr view --comments` (escalade, litige).
+
+## Skills / outils recommandés
+- `plugin-authoring` : conventions de prompts de plugin.
+
+## Dépendances
+Aucune
+
+## Taille
+M
+
+### F-17 · [skills] Missions épurées, isolation documentée et préfixe stable (prompt caching)
+## Contexte
+Les missions que le CP envoie aux agents doivent rester minimales et ne contenir que des références (numéros, chemins), jamais de contenu que l'agent peut lire lui-même. L'isolation des sous-agents (contexte vierge, pas d'historique de la session principale) est acquise par l'outil Agent mais n'est écrite nulle part, et l'ordre des champs des missions n'est pas pensé pour le cache de prompt d'Anthropic (préfixe identique d'un appel à l'autre).
+
+## Objectif
+Formaliser « Input épuré », l'isolation stricte des sous-agents et un préfixe de mission stable pour maximiser les hits du cache de prompt.
+
+## Critères d'acceptance
+- [ ] `skills/gepet-squad/SKILL.md` : nouvelle section « Économie de contexte » courte avec : (a) règle « Input épuré » — une mission contient des instructions strictes et des références (n° d'issue/PR, branche, chemins) ; jamais le corps d'une issue, un diff, un rapport ou le contenu d'un fichier, que l'agent lit lui-même (`gh issue view`, `gh pr diff`, Read) ; (b) isolation — chaque agent est lancé par l'outil Agent (contexte vierge, sans l'historique du CP) ; ne jamais continuer par `SendMessage` un agent d'un autre ticket pour « gagner du contexte » ; `SendMessage` reste réservé à l'architecte pendant le cadrage ; (c) préfixe stable.
+- [ ] Toutes les missions du SKILL (§1.1, 4.1, 4.2, 4.3, 4.5, 4.6) sont ordonnées du **plus stable au plus variable** : `MODE`, `REFERENCES`, `REPO`, puis `SOUS_PROJET`/`GRAPHE`, puis `ISSUE`/`PR`/`BRANCHE`/`TENTATIVE`, et le texte libre (`BESOIN`, `RAPPORT`) en dernier. `github-conventions.md` ou `report-formats.md` documente cet ordre.
+- [ ] Chaque agent (`agents/*.md`) indique en tête de sa section de mission qu'il lit lui-même ce dont il a besoin à partir des références reçues (issue, PR, `docs/architecture/`, graphe) et n'exige aucun contenu collé dans la mission.
+- [ ] `README.md` : paragraphe « Consommation » (isolation, input épuré, rapports Flash de F-16, cache de prompt) en quelques lignes.
+- [ ] Tests unitaires : sans objet (prompts Markdown).
+- [ ] Tests d'intégration : `claude plugin validate .`, `bash -n scripts/bootstrap.sh`, test du hook `guard.cjs` de `CLAUDE.md`, `npm run lint` et `npm test` au vert.
+
+## Notes techniques
+- Sous-projet : `skills`
+- Fichiers / modules concernés : `skills/gepet-squad/SKILL.md`, `agents/architecte.md`, `agents/developpeur.md`, `agents/verificateur.md`, `agents/testeur.md`, `skills/gepet-squad/references/github-conventions.md`, `README.md`
+- Contraintes : tout en français ; ne pas toucher `plugin.json` ni `CHANGELOG.md` ; ne pas toucher aux lignes `tools:` des agents ; le `BESOIN` de l'utilisateur reste mot pour mot dans la mission de cadrage (donnée utilisateur, pas un fichier).
+
+## Skills / outils recommandés
+- `plugin-authoring`.
+
+## Dépendances
+- F-16
+
+## Taille
+S
+
+### F-18 · [skills] État externe du Chef de projet et publication de la 0.6.0
+## Contexte
+Le CP est la session la plus coûteuse car son contexte grossit tout au long de la roadmap. L'état du projet est déjà sur GitHub (labels, milestones, commentaires de PR) et dans `docs/roadmap.md`, mais le SKILL ne dit pas au CP de s'y référer plutôt que de garder brouillons, roadmap et rapports dans sa mémoire de conversation.
+
+## Objectif
+Le CP traite `docs/roadmap.md` et GitHub comme sa mémoire externe : il y lit à la demande, par section, et n'y garde que des numéros et des verdicts. Livre la 0.6.0 du plugin.
+
+## Critères d'acceptance
+- [ ] `skills/gepet-squad/SKILL.md` : la section « Économie de contexte » (créée par F-17) reçoit le volet « État externe » : après la publication (phase 3.5), la roadmap vit dans `docs/roadmap.md` (table `F-xx → #n` incluse) ; le CP ne la relit jamais en entier — il lit seulement la section de la feature concernée (`grep -n "^### F-" docs/roadmap.md` puis lecture ciblée) ou l'issue GitHub ; l'état courant se reconstruit avec `gh issue list --milestone … --json` (jamais depuis la mémoire de la conversation) ; entre deux features, le CP ne conserve que : n° d'issue, n° de PR, verdict, compteur de retries.
+- [ ] Phase 3 : `REVUE_ROADMAP` reçoit le **chemin** du brouillon écrit sur disque (champ `ROADMAP`) et non son contenu collé ; `agents/architecte.md` et `report-formats.md` sont ajustés en conséquence.
+- [ ] `skills/gepet-squad-resume/SKILL.md` : s'aligne sur le même principe (reconstruction par GitHub + sections ciblées de `docs/roadmap.md`) sans régression de comportement ; aucune nouvelle donnée d'état hors GitHub / `.gepet-squad.json` / `docs/roadmap.md`.
+- [ ] Versionnage (dernière feature de M4) : `.claude-plugin/plugin.json` passe en `0.6.0` et `CHANGELOG.md` reçoit une entrée `0.6.0` qui décrit F-16, F-17 et F-18 (rapports Flash, missions épurées/cache, état externe).
+- [ ] `docs/roadmap.md` : la vue d'ensemble liste M4 et la version 0.6.0.
+- [ ] Tests unitaires : sans objet (prompts Markdown).
+- [ ] Tests d'intégration : `claude plugin validate .`, `bash -n scripts/bootstrap.sh`, test du hook `guard.cjs` de `CLAUDE.md`, `npm run lint` et `npm test` au vert.
+
+## Notes techniques
+- Sous-projet : `skills`
+- Fichiers / modules concernés : `skills/gepet-squad/SKILL.md`, `skills/gepet-squad-resume/SKILL.md`, `agents/architecte.md`, `skills/gepet-squad/references/report-formats.md`, `.claude-plugin/plugin.json`, `CHANGELOG.md`, `docs/roadmap.md`
+- Contraintes : tout en français ; seule feature de M4 qui touche `plugin.json` et `CHANGELOG.md` ; ne pas toucher aux lignes `tools:` des agents.
+
+## Skills / outils recommandés
+- `plugin-authoring`.
+
+## Dépendances
+- F-17
+
+## Taille
+S
+
 ---
 
 ## Correspondance F-xx → issues GitHub
@@ -557,3 +652,6 @@ S
 | F-13 | #14 |
 | F-14 | #15 |
 | F-15 | #10 |
+| F-16 | #44 |
+| F-17 | #45 |
+| F-18 | #46 |

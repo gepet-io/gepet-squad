@@ -33,6 +33,16 @@ Plugin Claude Code : une **squad IT d'agents** qui transforme un simple prompt e
 
 Après vos deux validations, tout est autonome. GitHub est la source de vérité : labels `status:*`, milestones, rapports en commentaires de PR.
 
+## Consommation
+
+La squad limite les tokens consommés sans réduire le contrôle :
+
+- **Isolation** : chaque agent est lancé avec un contexte vierge, sans l'historique du Chef de projet, et un agent n'est jamais réutilisé d'un ticket à l'autre.
+- **Input épuré** : une mission ne contient que des instructions et des références (n° d'issue ou de PR, branche, chemins). L'agent lit lui-même l'issue, le diff, les rapports et l'architecture au lieu de les recevoir collés.
+- **Rapports Flash** : développeur, vérificateur et testeur répondent par un bloc de 5 lignes ; le détail reste dans un commentaire de PR (voir `report-formats.md`).
+- **Cache de prompt** : les champs d'une mission vont du plus stable au plus variable, pour que le début du prompt soit identique d'un appel à l'autre et profite du cache de prompt d'Anthropic.
+- **État externe** : le Chef de projet ne garde que des numéros et des verdicts. Il relit l'état sur GitHub et la feature concernée dans `docs/roadmap.md` (section ciblée, jamais le fichier entier), et la revue de roadmap par l'architecte se fait sur le chemin du fichier, pas sur son contenu collé.
+
 ## Commandes
 
 | Commande | Rôle |

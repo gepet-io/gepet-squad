@@ -4,6 +4,21 @@ Chaque agent répond au Chef de projet **uniquement** avec le bloc de son mode. 
 
 ---
 
+## Ordre des champs d'une mission (CP → agent)
+
+Une mission ne contient que des instructions et des références : l'agent lit lui-même l'issue, la PR, `docs/architecture/` et le graphe. Les champs vont du **plus stable au plus variable**, un par ligne, pour que le début du prompt soit identique d'un appel à l'autre (préfixe stable, cache de prompt) :
+
+1. `MODE` (absent pour le vérificateur et le testeur) ;
+2. `REFERENCES` ;
+3. `REPO` (puis `HUB`, `REPO_EXISTANT`) ;
+4. `SOUS_PROJET` / `SOUS_PROJETS_IMPACTES`, puis `GRAPHE` (ligne omise si le graphe n'est pas à jour), puis `SKILLS_DISPONIBLES` ;
+5. `ISSUE`, `PR`, `BRANCHE`, `TENTATIVE`, `ROADMAP` (chemin absolu du brouillon de roadmap écrit sur disque, en `REVUE_ROADMAP` uniquement : jamais son contenu) ;
+6. le texte libre en dernier : `RAPPORT` (URL du commentaire de PR), `BESOIN` (mot pour mot, donnée de l'utilisateur).
+
+Les champs sont lus au début de ligne par le collecteur du hook : ne les fusionne pas sur une même ligne, et garde `RAPPORT` après tous les autres.
+
+---
+
 ## QUESTIONS (Architecte → CP)
 
 ```
@@ -60,6 +75,8 @@ PITCH
 
 ## VERDICT_ROADMAP (Architecte → CP)
 
+Réponse à une mission `MODE: REVUE_ROADMAP` dont le champ `ROADMAP` donne le chemin du brouillon (`docs/roadmap.md`). Le CP corrige ce fichier à chaque `À REVOIR` ; il ne colle jamais le brouillon dans la mission.
+
 ```
 VERDICT_ROADMAP: APPROUVÉ | À REVOIR
 1. [F-<id>] <problème> → <correction attendue>
@@ -79,18 +96,44 @@ ESCALADE
 
 ---
 
+## Protocole « Output Flash » : rapports des agents d'exécution
+
+Les agents d'exécution (développeur, vérificateur, testeur) répondent au CP par un **bloc compact de 5 lignes maximum**. Le détail n'est jamais renvoyé au CP : il vit **uniquement** dans un commentaire de PR (voir « Contenu du commentaire de PR » après chaque bloc), dont le bloc compact donne l'URL.
+
+- Le CP ne lit que le bloc compact. Il garde dans son contexte les verdicts, les numéros et l'URL du commentaire, et ne recopie jamais un rapport.
+- En échec, la mission `MODE: CORRECTIF` reçoit `RAPPORT: <URL du commentaire de PR>` ; le développeur relit lui-même le détail sur la PR.
+- Le CP peut lire le détail à la demande (escalade, litige) avec `gh pr view <PR> --comments`.
+- L'URL s'obtient avec `gh pr comment`, qui l'affiche à la création du commentaire. Si le développeur est bloqué avant d'avoir ouvert une PR, le détail va en commentaire de l'**issue** (`gh issue comment`) et le bloc donne cette URL.
+- Les blocs de l'architecte ne changent pas : ils servent aux échanges avec l'utilisateur.
+- Les en-têtes de bloc et les lignes `Statut:` / `Verdict:` sont lus par le collecteur du hook : ne les reformule pas.
+
+---
+
 ## RAPPORT_DEV (Développeur → CP)
 
 ```
 RAPPORT_DEV
-Statut: LIVRÉ | BLOQUÉ
-Issue: #<n> — PR: #<n> — Branche: <branche>
+Statut: LIVRÉ | BLOQUÉ — Issue: #<n> — PR: #<n> | aucune — Branche: <branche> — tentative <k>
+Critères: <tenus>/<total> — Tests: <N> passés / <M> échoués
+Difficultés: <une phrase, ou « aucune » ; en BLOQUÉ, le point bloquant>
+Détail: <URL du commentaire de PR « Livraison » ou « Correctifs tentative N »>
+```
+
+`PR: aucune` si le développeur est `BLOQUÉ` avant d'avoir ouvert une PR (le `Détail` pointe alors vers un commentaire de l'issue). `tentative <k>` vaut `0` en `MODE: IMPLEMENTATION` ; en `MODE: CORRECTIF`, c'est la tentative du rapport d'échec traité.
+
+### Contenu du commentaire de PR (Développeur)
+
+Titre : `📦 Livraison` (implémentation) ou `🔧 Correctifs tentative <N>` (correctif).
+
+```
 ### Critères d'acceptance
 - [x] <critère> — preuve : <test / fichier:ligne / sortie>
 ### Tests
 <commande> → <N passés, M échoués>
 ### Fichiers principaux
 ### Points d'attention / blocage
+### Points du rapport traités (correctif uniquement)
+- <point du rapport> → <ce qui a été fait, ou raison de la contestation>
 ```
 
 ---
@@ -99,7 +142,19 @@ Issue: #<n> — PR: #<n> — Branche: <branche>
 
 ```
 RAPPORT_VERIFICATION
-Verdict: PASS | FAIL — PR #<n> — tentative <k>
+Verdict: PASS | FAIL — Issue: #<n> — PR: #<n> — tentative <k>
+Critères: <tenus>/<total> — Correctifs bloquants: <n> — Remarques mineures: <m>
+Difficultés: <une phrase, ou « aucune »>
+Détail: <URL du commentaire de PR « 🔍 Vérification »>
+```
+
+En `FAIL`, le bloc donne le **nombre** de correctifs bloquants, jamais leur détail.
+
+### Contenu du commentaire de PR (Vérificateur)
+
+Titre : `🔍 Vérification — tentative <k> — PASS|FAIL`.
+
+```
 ### Critères d'acceptance
 - ✅|❌ <critère> — <fichier:ligne / remarque>
 ### Correctifs bloquants
@@ -114,7 +169,19 @@ Verdict: PASS | FAIL — PR #<n> — tentative <k>
 
 ```
 RAPPORT_TESTS
-Verdict: PASS | FAIL — PR #<n> — tentative <k>
+Verdict: PASS | FAIL — Issue: #<n> — PR: #<n> — tentative <k>
+Tests: candidat <N> passés / <M> échoués (baseline <N0> / <M0>) — Régressions et défauts: <r>
+Difficultés: <une phrase, ou « aucune » ; réserve éventuelle>
+Détail: <URL du commentaire de PR « 🧪 Tests de non-régression »>
+```
+
+En `FAIL`, le bloc donne le **nombre** de régressions et défauts, jamais leur détail.
+
+### Contenu du commentaire de PR (Testeur)
+
+Titre : `🧪 Tests de non-régression — tentative <k> — PASS|FAIL`.
+
+```
 ### Résultats
 | Sous-projet | Baseline develop | Candidat (PR + develop) |
 | <x> | 120 ✅ / 0 ❌ | 131 ✅ / 0 ❌ |
