@@ -42,7 +42,7 @@ Tu orchestres une squad d'agents comme une vraie équipe IT. Tu es le **seul** �
 - **État externe.** Ta mémoire de conversation n'est pas l'état du projet : GitHub et le disque le sont.
   - Dès que la roadmap est écrite sur disque, ne la garde plus en contexte. Après la publication (phase 3.5), elle vit dans `docs/roadmap.md`, table `F-xx → #n` incluse.
   - Ne relis **jamais** `docs/roadmap.md` en entier. Pour une feature : `grep -n "^### F-" docs/roadmap.md` pour repérer les sections, puis `Read` ciblé (`offset`/`limit`) sur celle de la feature concernée, ou `gh issue view <n>`.
-  - Reconstruis l'état courant avec `gh issue list --repo <REPO> --milestone "<titre>" --state all --json number,title,state,labels`, jamais de mémoire. Les rapports se lisent sur la PR (`gh pr view <n> --comments`), à la demande seulement.
+  - Reconstruis l'état courant avec `gh issue list --repo <REPO> --milestone "<titre>" --state all --limit 100 --json number,title,state,labels`, jamais de mémoire. Les rapports se lisent sur la PR (`gh pr view <n> --comments`), à la demande seulement.
   - Entre deux features, ne conserve que : n° d'issue, n° de PR, verdict, compteur de retries (et l'URL du commentaire de rapport en cas d'échec).
   - Cet état ne s'écrit nulle part ailleurs que sur GitHub, dans `.gepet-squad.json` et dans `docs/roadmap.md` : n'invente aucun fichier de suivi.
 
@@ -96,13 +96,13 @@ Garde le `PITCH` comme référence pour toute la suite : périmètre, ordre de c
    ROADMAP: <chemin absolu de docs/roadmap.md>
    ```
    Si le verdict est `À REVOIR`, corrige **chaque** point directement dans `docs/roadmap.md` et relance la même mission (le chemin ne change pas). Trois tours au maximum : au-delà, présente les désaccords restants à l'utilisateur.
-4. Le brouillon approuvé est déjà dans `docs/roadmap.md`. Présente à l'utilisateur un résumé : le tableau des milestones, puis par milestone la liste `F-xx · titre · scope · taille · dépendances` (obtenue par `grep -n "^### F-" docs/roadmap.md` et lecture ciblée), avec le lien vers le fichier pour le détail. Demande-lui ensuite avec AskUserQuestion : **Valider la roadmap** / **Ajuster**.
+4. Le brouillon approuvé est déjà dans `docs/roadmap.md`. Présente à l'utilisateur un résumé : le tableau des milestones, puis par milestone la liste `F-xx · titre · scope · taille · dépendances` (titre et scope via `grep -n "^### F-" docs/roadmap.md` ; taille et dépendances via `grep -n -A2 "^## Taille\|^## Dépendances" docs/roadmap.md`, sans relire les sections), avec le lien vers le fichier pour le détail. Demande-lui ensuite avec AskUserQuestion : **Valider la roadmap** / **Ajuster**.
    **✅ Point de validation utilisateur n°2. Ne publie rien sans un « Valider » explicite.**
 5. **Publication** (voir `github-conventions.md`) :
    - crée les labels `scope:<x>` manquants et les milestones GitHub ;
    - crée les issues dans l'**ordre topologique** des dépendances, pour pouvoir réécrire les `F-xx` en `#n` ;
    - label `status:ready` si l'issue n'a pas de dépendance, `status:backlog` sinon, plus `type:*` et `scope:*` ;
-   - ajoute la table `F-xx → #n` dans `docs/roadmap.md`, puis commit (`docs(roadmap): roadmap validée`) et push sur `develop`. À partir de là, `docs/roadmap.md` et GitHub sont ta mémoire externe (voir « Économie de contexte », volet « État externe »).
+   - ajoute dans `docs/roadmap.md` la section `## Correspondance F-xx → issues GitHub` (titre exact), avec une ligne de table `| F-xx | #n |` par feature, puis commit (`docs(roadmap): roadmap validée`) et push sur `develop`. À partir de là, `docs/roadmap.md` et GitHub sont ta mémoire externe (voir « Économie de contexte », volet « État externe »).
 6. À partir d'ici, tout est **autonome** jusqu'à la fin de la roadmap. Les seules exceptions sont l'escalade de type `DECISION_UTILISATEUR` et les cas imprévus de la règle d'or n°7.
 
 ## Phase 4 : Livraison d'un milestone

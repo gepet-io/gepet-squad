@@ -18,13 +18,13 @@ Même principe que le volet « État externe » de `gepet-squad/SKILL.md` : l'é
 1. `.gepet-squad.json` doit exister dans le répertoire courant. Sinon, dis à l'utilisateur qu'aucun projet squad n'est présent ici et propose `/gepet-squad "<besoin>"`.
 2. `git switch develop && git pull`.
 3. Collecte :
-   - `docs/architecture/ARCHITECTURE.md` existe-t-il ? `docs/roadmap.md` existe-t-il, et contient-il la table `F-xx → #n` (roadmap publiée, vérifiable par `grep -n "^## Correspondance" docs/roadmap.md`, sans lire le fichier) ?
+   - `docs/architecture/ARCHITECTURE.md` existe-t-il ? `docs/roadmap.md` existe-t-il, et contient-il la table `F-xx → #n` (vérifiable sans lire le fichier : `grep -nE "^\| *F-[0-9]+ *\| *#[0-9]+" docs/roadmap.md`) ? La roadmap est **publiée** si cette table existe **ou** si des issues existent déjà dans les milestones (collecte ci-dessous) : dans ce cas, ne repars jamais en phase 3, pour ne pas créer d'issues en double.
    - milestones : `gh api repos/<REPO>/milestones?state=all`
    - issues : `gh issue list --repo <REPO> --state all --limit 500 --json number,title,state,labels,milestone`
    - PR : `gh pr list --repo <REPO> --state open --json number,headRefName,baseRefName,title`, plus, pour chaque PR ouverte, l'**URL** et la ligne de titre (verdict) du dernier commentaire `🔍` ou `🧪` : `gh pr view <pr> --repo <REPO> --json comments`, filtré sur le titre, en ne gardant que `url` et la première ligne. Ne garde pas le contenu des rapports : ces URL remplacent celles que tu avais en contexte avant la reprise.
 4. Déduis la phase :
-   - pas d'architecture : phase 1 (le besoin initial est au début de `docs/roadmap.md` s'il existe (lis-en seulement l'en-tête, `Read` avec `limit`) ; sinon, demande-le) ;
-   - architecture présente mais roadmap non publiée : phase 3 (si `docs/roadmap.md` contient un brouillon sans table `F-xx → #n`, reprends-le tel quel : la revue de l'architecte se lance avec `ROADMAP: <chemin absolu de docs/roadmap.md>`, jamais avec le contenu collé) ;
+   - pas d'architecture : phase 1 (le besoin initial est au début de `docs/roadmap.md` s'il existe : lis-en seulement l'en-tête avec `Read` et `limit` ; sinon, demande-le) ;
+   - architecture présente mais roadmap non publiée (ni table, ni issues) : phase 3 (si `docs/roadmap.md` contient un brouillon sans table `F-xx → #n`, reprends-le tel quel : la revue de l'architecte se lance avec `ROADMAP: <chemin absolu de docs/roadmap.md>`, jamais avec le contenu collé) ;
    - sinon, phase 4 sur le premier milestone ouvert, ou phase 5 si toutes ses issues sont fermées sans PR `release/*` ouverte.
 
 > **Graphify** : Si `.gepet-squad.json` contient `graphify.enabled`, lis `graphify.md` et reconstruis/mets à jour le graphe sur `develop` (il n'est pas versionné et peut manquer ou être périmé) avant de relancer les agents.

@@ -23,6 +23,12 @@ F-01 → F-03
 ### F-02 · …
 
 ## M2 — …
+
+## Correspondance F-xx → issues GitHub
+(section ajoutée à la publication : une ligne de table par feature)
+| Feature | Issue |
+|---|---|
+| F-01 | #12 |
 ```
 
 ## Règles de construction
@@ -30,4 +36,4 @@ F-01 → F-03
 - Un milestone produit un **incrément démontrable**, pas une couche technique isolée : on vise une tranche verticale dès que possible.
 - 3 à 8 features par milestone. Au-delà, il faut découper le milestone.
 - Les identifiants `F-xx` sont stables pendant la revue. À la publication, chaque `F-xx` devient une issue `#n`, et les dépendances sont réécrites avec les `#n`.
-- Le brouillon s'écrit directement dans `docs/roadmap.md` (l'architecte le lit par son chemin, champ `ROADMAP`). Après validation, il est commité sur `develop`, et la table de correspondance `F-xx → #n` y est ajoutée.
+- Le brouillon s'écrit directement dans `docs/roadmap.md` (l'architecte le lit par son chemin, champ `ROADMAP`). Après validation, il est commité sur `develop`, et la table de correspondance `F-xx → #n` y est ajoutée, sous le titre exact `## Correspondance F-xx → issues GitHub` (la reprise s'appuie sur lui et sur les lignes `| F-xx | #n |`).
