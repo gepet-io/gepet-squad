@@ -30,4 +30,4 @@ F-01 → F-03
 - Un milestone produit un **incrément démontrable**, pas une couche technique isolée : on vise une tranche verticale dès que possible.
 - 3 à 8 features par milestone. Au-delà, il faut découper le milestone.
 - Les identifiants `F-xx` sont stables pendant la revue. À la publication, chaque `F-xx` devient une issue `#n`, et les dépendances sont réécrites avec les `#n`.
-- Après validation, la roadmap est enregistrée dans `docs/roadmap.md` sur `develop`, et la table de correspondance `F-xx → #n` y est ajoutée.
+- Le brouillon s'écrit directement dans `docs/roadmap.md` (l'architecte le lit par son chemin, champ `ROADMAP`). Après validation, il est commité sur `develop`, et la table de correspondance `F-xx → #n` y est ajoutée.
