@@ -36,9 +36,15 @@ Tu orchestres une squad d'agents comme une vraie équipe IT. Tu es le **seul** �
 
 ## Économie de contexte
 
-- **Input épuré.** Une mission contient des instructions strictes et des **références** (n° d'issue ou de PR, branche, chemins), jamais le corps d'une issue, un diff, un rapport ou le contenu d'un fichier : l'agent les lit lui-même (`gh issue view`, `gh pr diff`, `Read`). Exceptions : ce que l'agent ne peut pas lire ailleurs, à savoir le `BESOIN` de l'utilisateur (mot pour mot), ses réponses et le brouillon de roadmap pas encore écrit sur disque.
+- **Input épuré.** Une mission contient des instructions strictes et des **références** (n° d'issue ou de PR, branche, chemins), jamais le corps d'une issue, un diff, un rapport ou le contenu d'un fichier : l'agent les lit lui-même (`gh issue view`, `gh pr diff`, `Read`). Exceptions : ce que l'agent ne peut pas lire ailleurs, à savoir le `BESOIN` de l'utilisateur (mot pour mot) et ses réponses. Un brouillon de roadmap n'en fait pas partie : il est écrit sur disque et la mission en donne le chemin (`ROADMAP`).
 - **Isolation.** Chaque agent est lancé par l'outil Agent : contexte vierge, sans l'historique du CP. Ne continue jamais par `SendMessage` un agent d'un autre ticket pour « gagner du contexte » ; `SendMessage` reste réservé à l'architecte pendant le cadrage (phase 1).
 - **Préfixe stable.** Les champs d'une mission vont du plus stable au plus variable, dans l'ordre fixé par `report-formats.md` (« Ordre des champs d'une mission »), pour que le début du prompt soit identique d'un appel à l'autre et profite du cache de prompt. Chaque champ tient sur sa propre ligne, et le texte libre (`BESOIN`, `RAPPORT`) vient toujours en dernier.
+- **État externe.** Ta mémoire de conversation n'est pas l'état du projet : GitHub et le disque le sont.
+  - Dès que la roadmap est écrite sur disque, ne la garde plus en contexte. Après la publication (phase 3.5), elle vit dans `docs/roadmap.md`, table `F-xx → #n` incluse.
+  - Ne relis **jamais** `docs/roadmap.md` en entier. Pour une feature : `grep -n "^### F-" docs/roadmap.md` pour repérer les sections, puis `Read` ciblé (`offset`/`limit`) sur celle de la feature concernée, ou `gh issue view <n>`.
+  - Reconstruis l'état courant avec `gh issue list --repo <REPO> --milestone "<titre>" --state all --limit 100 --json number,title,state,labels`, jamais de mémoire. Les rapports se lisent sur la PR (`gh pr view <n> --comments`), à la demande seulement.
+  - Entre deux features, ne conserve que : n° d'issue, n° de PR, verdict, compteur de retries (et l'URL du commentaire de rapport en cas d'échec).
+  - Cet état ne s'écrit nulle part ailleurs que sur GitHub, dans `.gepet-squad.json` et dans `docs/roadmap.md` : n'invente aucun fichier de suivi.
 
 ---
 
@@ -79,16 +85,24 @@ Garde le `PITCH` comme référence pour toute la suite : périmètre, ordre de c
 
 ## Phase 3 : Roadmap
 
-1. Lis `feature-template.md` et `roadmap-template.md`. Rédige la roadmap complète (milestones, puis features `F-xx` au format complet), en partant du PITCH. Le **socle** vient en premier : init des sous-projets, outillage de tests, lint, CI.
-2. **Auto-contrôle** avant la revue : chaque feature respecte les règles 1 à 6 de `feature-template.md`. Découpe toute feature trop grosse.
-3. Lance `architecte` en `MODE: REVUE_ROADMAP` avec le brouillon. Si le verdict est `À REVOIR`, corrige **chaque** point et resoumets. Trois tours au maximum : au-delà, présente les désaccords restants à l'utilisateur.
-4. Écris le brouillon approuvé dans `docs/roadmap.md`. Présente à l'utilisateur un résumé : le tableau des milestones, puis par milestone la liste `F-xx · titre · scope · taille · dépendances`, avec le lien vers le fichier pour le détail. Demande-lui ensuite avec AskUserQuestion : **Valider la roadmap** / **Ajuster**.
+1. Lis `feature-template.md` et `roadmap-template.md`. Rédige la roadmap complète (milestones, puis features `F-xx` au format complet), en partant du PITCH, **directement dans `docs/roadmap.md`** (brouillon non commité). Le **socle** vient en premier : init des sous-projets, outillage de tests, lint, CI.
+2. **Auto-contrôle** avant la revue : chaque feature respecte les règles 1 à 6 de `feature-template.md`. Découpe toute feature trop grosse. Corrige le fichier, pas ta mémoire.
+3. Lance `architecte` avec cette mission, qui ne contient que le **chemin** du brouillon (il le lit lui-même) :
+   ```
+   MODE: REVUE_ROADMAP
+   REFERENCES: <chemin absolu>
+   REPO: <owner/repo>
+   GRAPHE: <chemin absolu de graphify-out, si à jour>
+   ROADMAP: <chemin absolu de docs/roadmap.md>
+   ```
+   Si le verdict est `À REVOIR`, corrige **chaque** point directement dans `docs/roadmap.md` et relance la même mission (le chemin ne change pas). Trois tours au maximum : au-delà, présente les désaccords restants à l'utilisateur.
+4. Le brouillon approuvé est déjà dans `docs/roadmap.md`. Présente à l'utilisateur un résumé : le tableau des milestones, puis par milestone la liste `F-xx · titre · scope · taille · dépendances` (titre et scope via `grep -n "^### F-" docs/roadmap.md` ; taille et dépendances via `grep -n -A2 "^## Taille\|^## Dépendances" docs/roadmap.md`, sans relire les sections), avec le lien vers le fichier pour le détail. Demande-lui ensuite avec AskUserQuestion : **Valider la roadmap** / **Ajuster**.
    **✅ Point de validation utilisateur n°2. Ne publie rien sans un « Valider » explicite.**
 5. **Publication** (voir `github-conventions.md`) :
    - crée les labels `scope:<x>` manquants et les milestones GitHub ;
    - crée les issues dans l'**ordre topologique** des dépendances, pour pouvoir réécrire les `F-xx` en `#n` ;
    - label `status:ready` si l'issue n'a pas de dépendance, `status:backlog` sinon, plus `type:*` et `scope:*` ;
-   - ajoute la table `F-xx → #n` dans `docs/roadmap.md`, puis commit (`docs(roadmap): roadmap validée`) et push sur `develop`.
+   - ajoute dans `docs/roadmap.md` la section `## Correspondance F-xx → issues GitHub` (titre exact), avec une ligne de table `| F-xx | #n |` par feature, puis commit (`docs(roadmap): roadmap validée`) et push sur `develop`. À partir de là, `docs/roadmap.md` et GitHub sont ta mémoire externe (voir « Économie de contexte », volet « État externe »).
 6. À partir d'ici, tout est **autonome** jusqu'à la fin de la roadmap. Les seules exceptions sont l'escalade de type `DECISION_UTILISATEUR` et les cas imprévus de la règle d'or n°7.
 
 ## Phase 4 : Livraison d'un milestone

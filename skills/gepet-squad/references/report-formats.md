@@ -12,7 +12,7 @@ Une mission ne contient que des instructions et des références : l'agent lit l
 2. `REFERENCES` ;
 3. `REPO` (puis `HUB`, `REPO_EXISTANT`) ;
 4. `SOUS_PROJET` / `SOUS_PROJETS_IMPACTES`, puis `GRAPHE` (ligne omise si le graphe n'est pas à jour), puis `SKILLS_DISPONIBLES` ;
-5. `ISSUE`, `PR`, `BRANCHE`, `TENTATIVE` ;
+5. `ISSUE`, `PR`, `BRANCHE`, `TENTATIVE`, `ROADMAP` (chemin absolu du brouillon de roadmap écrit sur disque, en `REVUE_ROADMAP` uniquement : jamais son contenu) ;
 6. le texte libre en dernier : `RAPPORT` (URL du commentaire de PR), `BESOIN` (mot pour mot, donnée de l'utilisateur).
 
 Les champs sont lus au début de ligne par le collecteur du hook : ne les fusionne pas sur une même ligne, et garde `RAPPORT` après tous les autres.
@@ -74,6 +74,8 @@ PITCH
 ---
 
 ## VERDICT_ROADMAP (Architecte → CP)
+
+Réponse à une mission `MODE: REVUE_ROADMAP` dont le champ `ROADMAP` donne le chemin du brouillon (`docs/roadmap.md`). Le CP corrige ce fichier à chaque `À REVOIR` ; il ne colle jamais le brouillon dans la mission.
 
 ```
 VERDICT_ROADMAP: APPROUVÉ | À REVOIR

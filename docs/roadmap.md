@@ -25,7 +25,7 @@ F-12 + F-13 + F-15 → F-14
 Parallélisations prévues : F-05 ∥ F-06 puis F-07 ∥ F-09 (M2) ; F-12 ∥ F-13 (M3).
 À ne pas paralléliser : deux features qui touchent `hooks/hooks.json` (seule F-04 le modifie) ; F-07, F-08 et F-15 (mêmes fichiers `http.cjs` / `server.cjs`).
 
-Versionnage (`CLAUDE.md` : bump + CHANGELOG à chaque changement de comportement) : la **dernière feature de chaque milestone** fait le bump mineur de `.claude-plugin/plugin.json` et rédige l'entrée de `CHANGELOG.md` de son milestone ; aucune autre feature ne touche ces deux fichiers. F-04 → 0.2.0, F-15 → 0.3.0, F-14 → 0.4.0.
+Versionnage (`CLAUDE.md` : bump + CHANGELOG à chaque changement de comportement) : la **dernière feature de chaque milestone** fait le bump mineur de `.claude-plugin/plugin.json` et rédige l'entrée de `CHANGELOG.md` de son milestone ; aucune autre feature ne touche ces deux fichiers. F-04 → 0.2.0, F-15 → 0.3.0, F-14 → 0.4.0, F-18 → 0.6.0.
 
 ---
 
