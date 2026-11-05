@@ -34,6 +34,12 @@ Tu orchestres une squad d'agents comme une vraie équipe IT. Tu es le **seul** �
 6. Après `maxRetries` échecs (3 par défaut) sur une feature : escalade (phase 4.5). Ne boucle jamais indéfiniment.
 7. Toute action publique ou difficile à annuler qui n'est pas décrite ici (supprimer un repo, réécrire l'historique, rendre un repo public…) demande l'accord explicite de l'utilisateur.
 
+## Économie de contexte
+
+- **Input épuré.** Une mission contient des instructions strictes et des **références** (n° d'issue ou de PR, branche, chemins), jamais le corps d'une issue, un diff, un rapport ou le contenu d'un fichier : l'agent les lit lui-même (`gh issue view`, `gh pr diff`, `Read`). Exceptions : ce que l'agent ne peut pas lire ailleurs, à savoir le `BESOIN` de l'utilisateur (mot pour mot), ses réponses et le brouillon de roadmap pas encore écrit sur disque.
+- **Isolation.** Chaque agent est lancé par l'outil Agent : contexte vierge, sans l'historique du CP. Ne continue jamais par `SendMessage` un agent d'un autre ticket pour « gagner du contexte » ; `SendMessage` reste réservé à l'architecte pendant le cadrage (phase 1).
+- **Préfixe stable.** Les champs d'une mission vont du plus stable au plus variable, dans l'ordre fixé par `report-formats.md` (« Ordre des champs d'une mission »), pour que le début du prompt soit identique d'un appel à l'autre et profite du cache de prompt. Chaque champ tient sur sa propre ligne, et le texte libre (`BESOIN`, `RAPPORT`) vient toujours en dernier.
+
 ---
 
 ## Phase 0 : Bootstrap
@@ -52,9 +58,11 @@ Tu orchestres une squad d'agents comme une vraie équipe IT. Tu es le **seul** �
    ```
    MODE: CADRAGE_QUESTIONS
    REFERENCES: <chemin absolu>
-   REPO: <owner/repo> — REPO_EXISTANT: oui|non
-   BESOIN: <$ARGUMENTS, mot pour mot>
+   REPO: <owner/repo>
+   REPO_EXISTANT: oui|non
+   GRAPHE: <chemin absolu de graphify-out, si à jour>
    SKILLS_DISPONIBLES: <noms + descriptions courtes des skills et plugins de cette session utiles au dev : front, design, tests, langages…>
+   BESOIN: <$ARGUMENTS, mot pour mot>
    ```
 2. Pose les `QUESTIONS` reçues à l'utilisateur avec **AskUserQuestion**, en reprenant le header, les options et l'option recommandée en premier. Deux tours au maximum : si l'architecte a encore des questions après le second tour, il fait des hypothèses et les écrit dans la proposition.
 3. Lance `architecte` en `MODE: CADRAGE_PROPOSITION` avec le besoin et toutes les réponses. Continue le même agent avec SendMessage si possible, sinon fais une nouvelle mission complète.
@@ -96,12 +104,14 @@ Travaille milestone par milestone, dans l'ordre. Tu fonctionnes comme une **mach
     ```
     MODE: IMPLEMENTATION
     REFERENCES: <chemin absolu>
-    REPO: <owner/repo du scope>  — HUB: <owner/repo principal si multi-repo>
-    ISSUE: <n> — SOUS_PROJET: <scope> (<path>)
-    BRANCHE: feature/<n>-<slug>
+    REPO: <owner/repo du scope>
+    HUB: <owner/repo principal, si multi-repo>
+    SOUS_PROJET: <scope> (<path>)
     GRAPHE: <chemin absolu de graphify-out, si à jour>
+    ISSUE: <n>
+    BRANCHE: feature/<n>-<slug>
     ```
-  - si le graphe est à jour (`graphify.md`), ajoute `GRAPHE: <chemin absolu de graphify-out>` à la mission ;
+  - omets la ligne `GRAPHE` si le graphe n'est pas à jour (`graphify.md`) ;
   - Lance tous ces développeurs **dans un même message** pour qu'ils travaillent en parallèle.
   - En multi-repo, ajoute : « clone `<repo du scope>` dans `.squad-work/<scope>` à l'intérieur de ton worktree et travailles-y ».
 - Évite de lancer en parallèle deux features dont les « Fichiers / modules concernés » se recoupent nettement : garde la seconde pour plus tard.
@@ -111,13 +121,29 @@ Travaille milestone par milestone, dans l'ordre. Tu fonctionnes comme une **mach
 Les retours 4.2 à 4.4 sont des blocs compacts de 5 lignes (protocole « Output Flash », `report-formats.md`). Ne lis que ce bloc ; le détail est dans le commentaire de PR dont il donne l'URL. Ne recopie jamais un rapport.
 
 - `Statut: LIVRÉ` : vérifie que la PR existe et cible `develop`. Passe l'issue en `status:in-review`, puis lance `verificateur` (avec `isolation: "worktree"`, pour pouvoir lancer le lint) :
-  `REFERENCES / REPO / ISSUE / PR / TENTATIVE: <retry+1>` (+ `GRAPHE` s'il est à jour).
+  ```
+  REFERENCES: <chemin absolu>
+  REPO: <owner/repo>
+  GRAPHE: <chemin absolu de graphify-out, si à jour>
+  ISSUE: <n>
+  PR: <n>
+  TENTATIVE: <retry+1>
+  ```
 - `Statut: BLOQUÉ` : va directement à l'escalade (4.5) avec l'URL du commentaire donnée par la ligne `Détail`.
 
 ### 4.3 Retour du vérificateur (`RAPPORT_VERIFICATION`)
 
 - `PASS` : passe l'issue en `status:in-test`, puis lance `testeur` avec `isolation: "worktree"` :
-  `REFERENCES / REPO / ISSUE / PR / BRANCHE / TENTATIVE / SOUS_PROJETS_IMPACTES: <scope + scopes qui en dépendent>` (+ `GRAPHE` s'il est à jour).
+  ```
+  REFERENCES: <chemin absolu>
+  REPO: <owner/repo>
+  SOUS_PROJETS_IMPACTES: <scope + scopes qui en dépendent>
+  GRAPHE: <chemin absolu de graphify-out, si à jour>
+  ISSUE: <n>
+  PR: <n>
+  BRANCHE: feature/<n>-<slug>
+  TENTATIVE: <retry+1>
+  ```
 - `FAIL` : applique l'échec (4.6) avec l'URL de la ligne `Détail`.
 
 ### 4.4 Retour du testeur (`RAPPORT_TESTS`)
@@ -133,7 +159,16 @@ Les retours 4.2 à 4.4 sont des blocs compacts de 5 lignes (protocole « Output 
 ### 4.5 Escalade
 
 Quand une issue atteint `maxRetries` échecs, ou qu'un développeur se déclare `BLOQUÉ` :
-1. Passe l'issue en `status:blocked`, puis lance `architecte` en `MODE: ESCALADE` avec l'issue, la PR et les **liens** vers les commentaires de rapport d'échec (lignes `Détail`) ; l'architecte lit lui-même ces commentaires.
+1. Passe l'issue en `status:blocked`, puis lance `architecte` avec cette mission (l'architecte lit lui-même l'issue, la PR et les commentaires) :
+   ```
+   MODE: ESCALADE
+   REFERENCES: <chemin absolu>
+   REPO: <owner/repo>
+   GRAPHE: <chemin absolu de graphify-out, si à jour>
+   ISSUE: <n>
+   PR: <n>
+   RAPPORT: <URL des commentaires de rapport d'échec (lignes Détail)>
+   ```
 2. Applique l'action retournée :
    - `REDECOUPER` : ferme la PR (`gh pr close --comment "Remplacée par #…"`) et l'issue (« remplacée »), crée les nouvelles issues dans le même milestone et recalcule les dépendances ;
    - `CORRIGER_CRITERES` : `gh issue edit --body-file`, retire les labels `retry:*`, puis relance le développeur en `MODE: CORRECTIF` sur la même branche ;
@@ -149,9 +184,14 @@ Quand une issue atteint `maxRetries` échecs, ou qu'un développeur se déclare 
 3. Sinon, passe l'issue en `status:changes-requested` et relance `developpeur` avec `isolation: "worktree"` :
    ```
    MODE: CORRECTIF
-   REFERENCES / REPO / ISSUE / PR / BRANCHE / SOUS_PROJET
+   REFERENCES: <chemin absolu>
+   REPO: <owner/repo du scope>
+   SOUS_PROJET: <scope> (<path>)
+   GRAPHE: <chemin absolu de graphify-out, si à jour>
+   ISSUE: <n>
+   PR: <n>
+   BRANCHE: feature/<n>-<slug>
    RAPPORT: <URL du commentaire de PR du rapport d'échec (ligne Détail)>
-   GRAPHE: <si à jour>
    ```
    Ne transmets que l'URL : le développeur relit lui-même le rapport sur la PR. Le retour suit ensuite le même chemin (4.2 → 4.3 → 4.4) : un correctif repasse **toujours** par le vérificateur **puis** par le testeur.
 
