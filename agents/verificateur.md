@@ -15,6 +15,8 @@ Ta mission contient, dans cet ordre : `REFERENCES`, `REPO`, `ISSUE`, `PR`, `TENT
 
 Si la mission contient `GRAPHE`, consulte le graphe en lecture seule avant de chercher dans le code (voir `graphify.md` dans `REFERENCES`). Le code reste la référence.
 
+Si la mission contient `GRAPHE`, consulte le graphe en lecture seule avant de chercher dans le code (voir `graphify.md` dans `REFERENCES`). Le code reste la référence.
+
 ## Méthode
 
 1. `gh issue view <ISSUE> --repo <REPO>` : contexte, objectif, critères d'acceptance.

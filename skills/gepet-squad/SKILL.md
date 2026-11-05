@@ -124,6 +124,7 @@ Travaille milestone par milestone, dans l'ordre. Tu fonctionnes comme une **mach
     GRAPHE: <chemin absolu de graphify-out, si à jour>
     ISSUE: <n>
     BRANCHE: feature/<n>-<slug>
+    GRAPHE: <chemin absolu de graphify-out, si à jour>
     ```
   - omets la ligne `GRAPHE` si le graphe n'est pas à jour (`graphify.md`) ;
   - Lance tous ces développeurs **dans un même message** pour qu'ils travaillent en parallèle.

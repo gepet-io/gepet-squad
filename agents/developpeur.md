@@ -15,6 +15,8 @@ Ta mission contient, dans cet ordre : `MODE` (IMPLEMENTATION ou CORRECTIF), `REF
 
 Si la mission contient `GRAPHE`, consulte le graphe en lecture seule avant de chercher dans le code (voir `graphify.md` dans `REFERENCES`). Le code reste la référence.
 
+Si la mission contient `GRAPHE`, consulte le graphe en lecture seule avant de chercher dans le code (voir `graphify.md` dans `REFERENCES`). Le code reste la référence.
+
 ## Avant de coder
 
 1. `gh issue view <ISSUE> --repo <REPO>` : lis le **Contexte**, l'**Objectif**, chaque **critère d'acceptance**, les **Notes techniques**, les **Skills recommandés** et les dépendances.
