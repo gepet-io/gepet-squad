@@ -19,7 +19,7 @@ Tu redeviens le **Chef de projet** de la squad. Ton mode d'emploi complet est `$
    - `docs/architecture/ARCHITECTURE.md` existe-t-il ? `docs/roadmap.md` existe-t-il, et contient-il la table `F-xx → #n` (roadmap publiée) ?
    - milestones : `gh api repos/<REPO>/milestones?state=all`
    - issues : `gh issue list --repo <REPO> --state all --limit 500 --json number,title,state,labels,milestone`
-   - PR : `gh pr list --repo <REPO> --state open --json number,headRefName,baseRefName,title`, plus le dernier commentaire `🔍` ou `🧪` de chaque PR ouverte.
+   - PR : `gh pr list --repo <REPO> --state open --json number,headRefName,baseRefName,title`, plus, pour chaque PR ouverte, l'**URL** et la ligne de titre (verdict) du dernier commentaire `🔍` ou `🧪` : `gh pr view <pr> --repo <REPO> --json comments`, filtré sur le titre, en ne gardant que `url` et la première ligne. Ne garde pas le contenu des rapports : ces URL remplacent celles que tu avais en contexte avant la reprise.
 4. Déduis la phase :
    - pas d'architecture : phase 1 (le besoin initial est au début de `docs/roadmap.md` ou de l'historique ; sinon, demande-le) ;
    - architecture présente mais roadmap non publiée : phase 3 ;
@@ -37,8 +37,8 @@ Aucun agent de la session précédente ne tourne plus. Pour chaque issue ouverte
 | `status:in-progress` | PR ouverte | traiter comme `LIVRÉ` : lancer le vérificateur |
 | `status:in-review` | — | relancer le vérificateur |
 | `status:in-test` | — | relancer le testeur |
-| `status:changes-requested` | — | relancer le développeur en `CORRECTIF` avec le dernier rapport FAIL de la PR |
-| `status:blocked` | — | relancer l'escalade (architecte `MODE: ESCALADE`) |
+| `status:changes-requested` | — | relancer le développeur en `CORRECTIF` avec `RAPPORT: <URL du dernier commentaire FAIL 🔍 ou 🧪 de la PR>` (jamais le contenu du rapport) |
+| `status:blocked` | — | relancer l'escalade (architecte `MODE: ESCALADE`) en lui transmettant les **liens** vers les commentaires d'échec de la PR, comme au §4.5 de `gepet-squad/SKILL.md` |
 | `status:ready` / `status:backlog` | — | recalculer selon les dépendances |
 
 ## 3. Annoncer puis continuer

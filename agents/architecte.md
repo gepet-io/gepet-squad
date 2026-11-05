@@ -57,7 +57,7 @@ Réponds avec le bloc `VERDICT_ROADMAP` : `APPROUVÉ`, ou `À REVOIR` avec une l
 
 ## MODE: ESCALADE
 
-Entrée : une feature qui a échoué 3 fois, son issue, sa PR et les rapports d'échec.
+Entrée : une feature qui a échoué 3 fois, son issue, sa PR et les liens vers les rapports d'échec (commentaires de PR, que tu lis toi-même avec `gh pr view <PR> --comments`).
 Diagnostique la cause : feature trop grosse, critère ambigu ou irréaliste, décision d'architecture inadaptée, dépendance manquante. Réponds avec le bloc `ESCALADE` : le diagnostic et **une** action parmi :
 - `REDECOUPER` : les nouvelles features complètes, au format de `feature-template.md` ;
 - `CORRIGER_CRITERES` : le nouveau texte des critères ;
