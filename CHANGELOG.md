@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.0 — 2026-11-05
+
+Milestone M4, « Économie de tokens » : réduire la consommation de la session principale (Chef de projet) sans perdre de traçabilité. Aucun changement de comportement visible pour l'utilisateur, aucune migration.
+
+- **Rapports Flash (F-16).** Développeur, vérificateur et testeur répondent au Chef de projet par un bloc de 5 lignes maximum (verdict, références, chiffres clés, difficultés, URL). Le détail vit uniquement dans le commentaire de PR ; en échec, la mission `CORRECTIF` reçoit `RAPPORT: <URL du commentaire>` et le développeur relit lui-même le rapport. Les blocs de l'architecte ne changent pas.
+- **Missions épurées et préfixe stable (F-17).** Une mission ne contient que des instructions et des références, jamais le corps d'une issue, un diff, un rapport ou un fichier ; les agents lisent eux-mêmes ce dont ils ont besoin. L'isolation des sous-agents est documentée (contexte vierge, `SendMessage` réservé à l'architecte pendant le cadrage). Les champs des missions vont du plus stable au plus variable (ordre fixé par `report-formats.md`) pour profiter du cache de prompt. Paragraphe « Consommation » dans le README.
+- **État externe du Chef de projet (F-18).** Le volet « État externe » de la section « Économie de contexte » fait de GitHub et de `docs/roadmap.md` la mémoire du Chef de projet : l'état courant se reconstruit par `gh issue list --milestone … --json`, la roadmap ne se relit jamais en entier (`grep -n "^### F-"` puis lecture ciblée), et entre deux features il ne conserve que n° d'issue, n° de PR, verdict et compteur de retries. `/gepet-squad-resume` suit le même principe, sans nouvelle donnée d'état.
+- **Revue de roadmap par chemin (F-18).** Le brouillon est écrit directement dans `docs/roadmap.md` et la mission `REVUE_ROADMAP` reçoit son chemin dans le nouveau champ `ROADMAP` au lieu de son contenu collé (`architecte.md`, `report-formats.md` et `roadmap-template.md` mis à jour).
+
+**Limite connue :** ces changements sont des consignes de prompt ; le gain de tokens n'a pas été mesuré sur un cycle squad réel.
+
 ## 0.5.0 — 2026-11-04
 
 Intégration optionnelle de [Graphify](https://pypi.org/project/graphifyy/) (paquet `graphifyy`) : un graphe de connaissances du code du projet piloté, tenu à jour par le Chef de projet.
