@@ -4,6 +4,21 @@ Chaque agent répond au Chef de projet **uniquement** avec le bloc de son mode. 
 
 ---
 
+## Ordre des champs d'une mission (CP → agent)
+
+Une mission ne contient que des instructions et des références : l'agent lit lui-même l'issue, la PR, `docs/architecture/` et le graphe. Les champs vont du **plus stable au plus variable**, un par ligne, pour que le début du prompt soit identique d'un appel à l'autre (préfixe stable, cache de prompt) :
+
+1. `MODE` (absent pour le vérificateur et le testeur) ;
+2. `REFERENCES` ;
+3. `REPO` (puis `HUB`, `REPO_EXISTANT`) ;
+4. `SOUS_PROJET` / `SOUS_PROJETS_IMPACTES`, puis `GRAPHE` (ligne omise si le graphe n'est pas à jour), puis `SKILLS_DISPONIBLES` ;
+5. `ISSUE`, `PR`, `BRANCHE`, `TENTATIVE` ;
+6. le texte libre en dernier : `RAPPORT` (URL du commentaire de PR), `BESOIN` (mot pour mot, donnée de l'utilisateur).
+
+Les champs sont lus au début de ligne par le collecteur du hook : ne les fusionne pas sur une même ligne, et garde `RAPPORT` après tous les autres.
+
+---
+
 ## QUESTIONS (Architecte → CP)
 
 ```
