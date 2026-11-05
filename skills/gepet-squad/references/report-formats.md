@@ -96,13 +96,13 @@ Les agents d'exécution (développeur, vérificateur, testeur) répondent au CP 
 
 ```
 RAPPORT_DEV
-Statut: LIVRÉ | BLOQUÉ — Issue: #<n> — PR: #<n> — Branche: <branche> — tentative <k>
+Statut: LIVRÉ | BLOQUÉ — Issue: #<n> — PR: #<n> | aucune — Branche: <branche> — tentative <k>
 Critères: <tenus>/<total> — Tests: <N> passés / <M> échoués
 Difficultés: <une phrase, ou « aucune » ; en BLOQUÉ, le point bloquant>
 Détail: <URL du commentaire de PR « Livraison » ou « Correctifs tentative N »>
 ```
 
-`tentative <k>` vaut `0` en `MODE: IMPLEMENTATION` ; en `MODE: CORRECTIF`, c'est la tentative du rapport d'échec traité.
+`PR: aucune` si le développeur est `BLOQUÉ` avant d'avoir ouvert une PR (le `Détail` pointe alors vers un commentaire de l'issue). `tentative <k>` vaut `0` en `MODE: IMPLEMENTATION` ; en `MODE: CORRECTIF`, c'est la tentative du rapport d'échec traité.
 
 ### Contenu du commentaire de PR (Développeur)
 

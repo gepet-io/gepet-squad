@@ -361,6 +361,20 @@ describe("extraction du rapport", () => {
     assert.deepEqual(extractReport("RAPPORT_DEV\nStatut: LIVRÉ"), { block: "RAPPORT_DEV", verdict: "LIVRÉ" });
   });
 
+  test("format Output Flash : la ligne compacte ne laisse fuiter que le statut ou le verdict", () => {
+    const dev = "RAPPORT_DEV\nStatut: LIVRÉ — Issue: #7 — PR: #12 — Branche: feature/7-x — tentative 0\nCritères: 3/3 — Tests: 10 passés / 0 échoués\nDifficultés: aucune\nDétail: https://github.com/o/r/pull/12#issuecomment-1";
+    assert.deepEqual(extractReport(dev), { block: "RAPPORT_DEV", verdict: "LIVRÉ" });
+    assert.deepEqual(extractReport("RAPPORT_DEV\nStatut: BLOQUÉ — Issue: #7 — PR: aucune — Branche: feature/7-x — tentative 0"), {
+      block: "RAPPORT_DEV", verdict: "BLOQUÉ",
+    });
+    assert.deepEqual(extractReport("RAPPORT_VERIFICATION\nVerdict: FAIL — Issue: #7 — PR: #12 — tentative 1\nCorrectifs: 2\nDifficultés: aucune\nDétail: https://x"), {
+      block: "RAPPORT_VERIFICATION", verdict: "FAIL",
+    });
+    assert.deepEqual(extractReport("RAPPORT_TESTS\nVerdict: PASS — Issue: #7 — PR: #12 — tentative 1\nTests: 12 passés / 0 échoués\nDifficultés: aucune\nDétail: https://x"), {
+      block: "RAPPORT_TESTS", verdict: "PASS",
+    });
+  });
+
   test("RAPPORT_VERIFICATION et RAPPORT_TESTS : verdict sans le reste de la ligne", () => {
     assert.deepEqual(extractReport("RAPPORT_VERIFICATION\nVerdict: FAIL — PR #3 — tentative 2"), {
       block: "RAPPORT_VERIFICATION", verdict: "FAIL",
