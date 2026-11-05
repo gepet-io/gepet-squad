@@ -30,4 +30,6 @@ Si la suite ne peut pas tourner (dépendance système absente, service externe m
 - `PASS` : aucune régression, build et lint au vert, critères observables vérifiés.
 - `FAIL` : régression, test en échec, conflit, build ou lint en échec, ou critère observable KO. Pour chaque problème : test ou commande, sortie d'erreur résumée, étapes de reproduction, cause probable.
 
-Poste le rapport sur la PR (`gh pr comment <PR> --repo <REPO> --body-file -` avec un heredoc), titré `🧪 Tests de non-régression — tentative <TENTATIVE> — PASS|FAIL`, avec le tableau baseline / candidat. Puis réponds au chef de projet **uniquement** avec le bloc `RAPPORT_TESTS` de `report-formats.md`.
+Poste le rapport **complet** sur la PR (`gh pr comment <PR> --repo <REPO> --body-file -` avec un heredoc), titré `🧪 Tests de non-régression — tentative <TENTATIVE> — PASS|FAIL`, avec le contenu « Testeur » de `report-formats.md` (tableau baseline / candidat, régressions, réserves). Garde l'URL que la commande affiche.
+
+Puis réponds au chef de projet **uniquement** avec le bloc compact `RAPPORT_TESTS` de `report-formats.md` (5 lignes maximum) : verdict, issue, PR, tentative, tests passés / échoués du candidat et de la baseline, nombre de régressions et défauts (jamais leur détail), une phrase de difficultés ou de réserve, et l'URL du commentaire. Le détail ne figure nulle part ailleurs que dans le commentaire de PR.

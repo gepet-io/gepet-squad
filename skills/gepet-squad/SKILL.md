@@ -108,15 +108,17 @@ Travaille milestone par milestone, dans l'ordre. Tu fonctionnes comme une **mach
 
 ### 4.2 Retour du développeur (`RAPPORT_DEV`)
 
+Les retours 4.2 à 4.4 sont des blocs compacts de 5 lignes (protocole « Output Flash », `report-formats.md`). Ne lis que ce bloc ; le détail est dans le commentaire de PR dont il donne l'URL. Ne recopie jamais un rapport.
+
 - `Statut: LIVRÉ` : vérifie que la PR existe et cible `develop`. Passe l'issue en `status:in-review`, puis lance `verificateur` (avec `isolation: "worktree"`, pour pouvoir lancer le lint) :
   `REFERENCES / REPO / ISSUE / PR / TENTATIVE: <retry+1>` (+ `GRAPHE` s'il est à jour).
-- `Statut: BLOQUÉ` : va directement à l'escalade (4.5).
+- `Statut: BLOQUÉ` : va directement à l'escalade (4.5) avec l'URL du commentaire donnée par la ligne `Détail`.
 
 ### 4.3 Retour du vérificateur (`RAPPORT_VERIFICATION`)
 
 - `PASS` : passe l'issue en `status:in-test`, puis lance `testeur` avec `isolation: "worktree"` :
   `REFERENCES / REPO / ISSUE / PR / BRANCHE / TENTATIVE / SOUS_PROJETS_IMPACTES: <scope + scopes qui en dépendent>` (+ `GRAPHE` s'il est à jour).
-- `FAIL` : applique l'échec (4.6).
+- `FAIL` : applique l'échec (4.6) avec l'URL de la ligne `Détail`.
 
 ### 4.4 Retour du testeur (`RAPPORT_TESTS`)
 
@@ -126,12 +128,12 @@ Travaille milestone par milestone, dans l'ordre. Tu fonctionnes comme une **mach
   3. **Débloque** les issues `status:backlog` dont toutes les dépendances sont maintenant fermées : passe-les en `status:ready`.
   4. **Graphify** : si `graphify.enabled`, `git switch develop && git pull` puis mets à jour le graphe de façon incrémentale, seulement si du code a changé (`graphify.md`).
   5. Informe l'utilisateur en une ligne, puis relance 4.1.
-- `FAIL` : applique l'échec (4.6).
+- `FAIL` : applique l'échec (4.6) avec l'URL de la ligne `Détail`.
 
 ### 4.5 Escalade
 
 Quand une issue atteint `maxRetries` échecs, ou qu'un développeur se déclare `BLOQUÉ` :
-1. Passe l'issue en `status:blocked`, puis lance `architecte` en `MODE: ESCALADE` avec l'issue, la PR et les rapports d'échec (liens vers les commentaires).
+1. Passe l'issue en `status:blocked`, puis lance `architecte` en `MODE: ESCALADE` avec l'issue, la PR et les **liens** vers les commentaires de rapport d'échec (lignes `Détail`) ; l'architecte lit lui-même ces commentaires.
 2. Applique l'action retournée :
    - `REDECOUPER` : ferme la PR (`gh pr close --comment "Remplacée par #…"`) et l'issue (« remplacée »), crée les nouvelles issues dans le même milestone et recalcule les dépendances ;
    - `CORRIGER_CRITERES` : `gh issue edit --body-file`, retire les labels `retry:*`, puis relance le développeur en `MODE: CORRECTIF` sur la même branche ;
@@ -148,10 +150,10 @@ Quand une issue atteint `maxRetries` échecs, ou qu'un développeur se déclare 
    ```
    MODE: CORRECTIF
    REFERENCES / REPO / ISSUE / PR / BRANCHE / SOUS_PROJET
-   RAPPORT: <le bloc RAPPORT_VERIFICATION ou RAPPORT_TESTS complet>
+   RAPPORT: <URL du commentaire de PR du rapport d'échec (ligne Détail)>
    GRAPHE: <si à jour>
    ```
-   Le retour suit ensuite le même chemin (4.2 → 4.3 → 4.4) : un correctif repasse **toujours** par le vérificateur **puis** par le testeur.
+   Ne transmets que l'URL : le développeur relit lui-même le rapport sur la PR. Le retour suit ensuite le même chemin (4.2 → 4.3 → 4.4) : un correctif repasse **toujours** par le vérificateur **puis** par le testeur.
 
 ## Phase 5 : Release du milestone
 

@@ -18,7 +18,7 @@ Si la mission contient `GRAPHE`, consulte le graphe en lecture seule avant de ch
 1. `gh issue view <ISSUE> --repo <REPO>` : contexte, objectif, critères d'acceptance.
 2. `gh pr view <PR> --repo <REPO> --comments` et `gh pr diff <PR> --repo <REPO>`. Lis aussi les fichiers modifiés **en entier** quand le diff ne suffit pas à comprendre.
 3. Lis `docs/architecture/ARCHITECTURE.md` et les ADR concernés.
-4. Si ce n'est pas la première tentative, vérifie d'abord que chaque point de ton rapport précédent a été traité.
+4. Si ce n'est pas la première tentative, vérifie d'abord que chaque point de ton rapport précédent a été traité : relis-le dans les commentaires de la PR (titre `🔍 Vérification`).
 
 ## Grille de vérification
 
@@ -40,4 +40,6 @@ Lance le lint et l'analyse statique du sous-projet s'ils existent. Une erreur de
 - `PASS` : aucun point bloquant. Les mineurs sont listés, mais ils n'empêchent pas le passage au testeur.
 - `FAIL` : au moins un point bloquant. Chaque correctif est **actionnable** : fichier:ligne, problème, correction attendue.
 
-Poste le rapport sur la PR (`gh pr comment <PR> --repo <REPO> --body-file -` avec un heredoc), titré `🔍 Vérification — tentative <TENTATIVE> — PASS|FAIL`. Puis réponds au chef de projet **uniquement** avec le bloc `RAPPORT_VERIFICATION` de `report-formats.md`.
+Poste le rapport **complet** sur la PR (`gh pr comment <PR> --repo <REPO> --body-file -` avec un heredoc), titré `🔍 Vérification — tentative <TENTATIVE> — PASS|FAIL`, avec le contenu « Vérificateur » de `report-formats.md`. Garde l'URL que la commande affiche.
+
+Puis réponds au chef de projet **uniquement** avec le bloc compact `RAPPORT_VERIFICATION` de `report-formats.md` (5 lignes maximum) : verdict, issue, PR, tentative, critères tenus, nombre de correctifs bloquants (jamais leur détail), une phrase de difficultés, et l'URL du commentaire. Le détail ne figure nulle part ailleurs que dans le commentaire de PR.
