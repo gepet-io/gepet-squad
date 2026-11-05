@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.0 — 2026-11-05
+
+Réglages des agents et Graphify allégé.
+
+- **Modèles et efforts.** Le vérificateur passe de `opus`/`high` à `sonnet`/`medium` ; le développeur passe à l'effort `medium`. README aligné (tableau des rôles).
+- **Outils Godot.** Le développeur et le testeur peuvent utiliser les outils MCP `godot` (vérifier, lancer, capturer et piloter un projet Godot).
+- **Graphify à la release.** Le Chef de projet met à jour le graphe de connaissances une fois par milestone (phase 5), plus après chaque merge de feature (§4.4), pour économiser des tokens.
+
 ## 0.6.0 — 2026-11-05
 
 Milestone M4, « Économie de tokens » : réduire la consommation de la session principale (Chef de projet) sans perdre de traçabilité. Aucun changement de comportement visible pour l'utilisateur, aucune migration.
