@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.8.0 — 2026-11-13
+
+Milestone M5, « Bureau 3D : décor et kanban » : la vue `/gepet-squad-viz` change de métaphore.
+
+- **Bureau 3D.** La scène des stations du pipeline est remplacée par le bureau de la squad : décor en modèles glTF (zones, postes, porte).
+- **Kanban.** Les features sont des post-its rangés dans les colonnes de leur statut.
+- **Agents provisoires.** Les agents restent des repères lumineux, remplacés par des bonhommes en 0.9.0.
+- **Assets vendorés.** Packs CC0 de Kenney (Mini Characters et Furniture Kit, v2.0) dans `viz/public/vendor/kenney/`, poids mesuré avec `du -sh viz/public/vendor/kenney` : **1,9 Mo**. Licences et sha256 dans `SOURCE.md`. Crédit : www.kenney.nl.
+- **Nouveau script `scripts/vendor-assets.sh`.** `bash scripts/vendor-assets.sh <zip-mini-characters> <zip-furniture-kit>` reconstruit le dossier vendorisé (procédure dans `CONTRIBUTING.md`).
+
 ## 0.7.0 — 2026-11-05
 
 Réglages des agents et Graphify allégé.

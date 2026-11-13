@@ -42,6 +42,16 @@ Créez `skills/<nom>/SKILL.md` avec un frontmatter `name`, `description` et éve
 4. Commit, puis push.
 5. Sur chaque machine : `/plugin marketplace update claude-gepet-squad`, puis redémarrer Claude Code.
 
+## Mettre à jour les assets 3D
+
+Le décor et les personnages de la vue 3D sont des assets CC0 de [Kenney](https://www.kenney.nl) vendorisés dans `viz/public/vendor/kenney/`. Télécharge à la main les packs « Mini Characters » et « Furniture Kit » sur kenney.nl (le lien est signé : le script ne télécharge rien), puis lance :
+
+```bash
+bash scripts/vendor-assets.sh <zip-mini-characters> <zip-furniture-kit>
+```
+
+Le script extrait uniquement les fichiers listés, vérifie leur présence avant de toucher au dossier, puis le reconstruit et réécrit `SOURCE.md` (sha256 par fichier). Si tu changes la liste, mets aussi à jour `viz/public/js/assets.js` et `tests/viz-web/kenney-assets.test.mjs`.
+
 ## Lint et tests
 
 L'outillage (ESLint, tests `node:test`) ne sert qu'au développement : le plugin n'a aucune dépendance npm à l'exécution.
