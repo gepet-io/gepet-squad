@@ -1,4 +1,4 @@
-/* Badges des features renvoyées en correctif (retry >= 1), posés par agents.js sur des CSS2DObject. Comme les autres
+/* Badges des features renvoyées en correctif (retry >= 1), posés par labels.js sur des CSS2DObject, au bord du post-it. Comme les autres
    étiquettes de la scène, ils ne captent jamais la souris (la couche .labels l'interdit déjà). Pas de style en ligne :
    la CSP n'autorise que les feuilles de style du site. */
 

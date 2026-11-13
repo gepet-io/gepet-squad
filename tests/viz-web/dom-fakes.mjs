@@ -131,7 +131,7 @@ export function fakeContainer(width = 800, height = 600) {
  */
 export function fakePage({ getContext = () => ({}) } = {}) {
   const elements = {};
-  for (const [id, tag] of [["connexion", "span"], ["depot", "span"], ["scene", "main"], ["legende", "ul"], ["repli", "section"]]) {
+  for (const [id, tag] of [["connexion", "span"], ["depot", "span"], ["scene", "main"], ["legende", "ul"], ["avertissement", "p"], ["repli", "section"]]) {
     elements[id] = fakeElement(tag, { id, hidden: id === "repli", dataset: {} });
   }
   return {
@@ -139,6 +139,22 @@ export function fakePage({ getContext = () => ({}) } = {}) {
     createElement: (tag) => (tag === "canvas" ? fakeElement(tag, { getContext }) : fakeElement(tag)),
     getElementById: (id) => elements[id] ?? null,
   };
+}
+
+/**
+ * Faux chargeur glTF pour `createScene({ loadModel })` : chaque appel enregistre l'URL dans `log` et rend une scène d'un
+ * maillage ; une URL qui contient l'une des chaînes de `fail` est rejetée. `THREE` : le module `three`, importé par le test.
+ */
+export function fakeLoader(THREE, { fail = [], log = [] } = {}) {
+  const loader = async (url) => {
+    log.push(url);
+    if (fail.some((part) => url.includes(part))) throw new Error(`chargement impossible : ${url}`);
+    const root = new THREE.Group();
+    root.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial()));
+    return { scene: root };
+  };
+  loader.log = log;
+  return loader;
 }
 
 /** Un faux élément et tous ses descendants, dans l'ordre du document. */
