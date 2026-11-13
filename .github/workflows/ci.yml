@@ -32,3 +32,6 @@ jobs:
       - name: Syntaxe de scripts/vendor-three.sh
         shell: bash
         run: bash -n scripts/vendor-three.sh
+      - name: Syntaxe de scripts/vendor-assets.sh
+        shell: bash
+        run: bash -n scripts/vendor-assets.sh
