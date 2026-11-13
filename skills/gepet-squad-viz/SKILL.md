@@ -64,7 +64,7 @@ Un argument autre que `stop` n'est pas reconnu : dis-le en une phrase, rappelle 
 
 Reste bref :
 
-- l'URL, sur sa propre ligne, à ouvrir dans le navigateur ;
+- l'URL, sur sa propre ligne, à ouvrir dans le navigateur (la page montre le bureau de la squad et son kanban) ;
 - une phrase : la vue est en lecture seule et se met à jour toute seule ; `/gepet-squad:gepet-squad-viz stop` arrête le serveur ;
 - si la vue ne s'affiche pas en 3D (navigateur sans WebGL), `?mode=texte` à la fin de l'URL ouvre la vue texte de repli.
 
