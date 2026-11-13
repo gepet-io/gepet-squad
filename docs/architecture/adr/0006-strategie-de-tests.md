@@ -1,5 +1,5 @@
 # 0006 — Stratégie de tests
-Statut : Acceptée — Date : 2026-10-30
+Statut : Acceptée — Date : 2026-10-30 — **Complétée** le 2026-11-13 par l'[ADR 0009](0009-metaphore-bureau-3d.md) (modules purs du bureau, et smoke manuel du bureau à la place de celui du pipeline) et par l'[ADR 0010](0010-assets-3d-cc0-vendores-gltf.md) (contrôle des GLB vendorés). Dans la liste des unitaires, `layout.js` est remplacé par `office-layout.js`, `paths.js`, `crew.js` et `assets.js`.
 
 ## Contexte
 
