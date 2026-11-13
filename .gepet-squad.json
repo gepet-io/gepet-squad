@@ -24,5 +24,8 @@
     "production": "main"
   },
   "maxParallelDevs": 3,
-  "maxRetries": 3
+  "maxRetries": 3,
+  "graphify": {
+    "enabled": true
+  }
 }
