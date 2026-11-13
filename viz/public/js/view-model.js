@@ -196,3 +196,40 @@ export function fitCamera(bounds, { fov = 45, aspect = 1.6, elevation = 52, marg
     position: { x: target.x, y: target.y + distance * sin, z: target.z + distance * cos },
   };
 }
+
+// --- Bureau : noms de zones et post-its ----------------------------------------------------------------------------------
+
+// Positions des post-its pour `featureInstances` : numéro -> { x, y, z, station (la colonne), zone: "kanban" }. `layout` est
+// la sortie de `kanbanLayout` (office-layout.js).
+export function kanbanPositions(layout) {
+  return new Map(layout.notes.map((n) => [n.number, { x: n.x, y: n.y, z: n.z, station: n.column, zone: "kanban" }]));
+}
+
+// Étiquettes posées dans le bureau : le nom de chaque zone au sol, puis l'en-tête de chaque colonne du kanban. `office` est
+// `OFFICE` (office-layout.js). [{ id, text, kind: "zone" | "column" | "escalade", x, y, z }].
+export function zoneLabels(office) {
+  const out = [];
+  for (const [id, zone] of Object.entries(office.zones)) {
+    out.push({ id, text: zone.name, kind: id === ESCALADE ? "escalade" : "zone", x: zone.x, y: 0.05, z: zone.z + zone.depth / 2 - 0.3 });
+  }
+  // Les en-têtes de colonnes voisines sont décalées en hauteur : « Développement » est plus large que sa colonne.
+  const { kanban } = office;
+  kanban.columns.forEach((column, index) => {
+    out.push({
+      id: `kanban:${column.id}`,
+      text: stationName(column.id),
+      kind: column.id === ESCALADE ? "escalade" : "column",
+      x: column.x,
+      y: kanban.top + 0.55 + (index % 2) * 0.6,
+      z: kanban.z,
+    });
+  });
+  return out;
+}
+
+// Avertissement affiché quand des fichiers 3D n'ont pas pu être chargés (texte, affiché par `textContent`).
+export function assetsWarning(count) {
+  return count === 1
+    ? "1 fichier 3D n'a pas pu être chargé : le décor est incomplet."
+    : `${count} fichiers 3D n'ont pas pu être chargés : le décor est incomplet.`;
+}

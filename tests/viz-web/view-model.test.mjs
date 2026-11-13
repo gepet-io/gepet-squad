@@ -6,23 +6,27 @@ import fs from "node:fs";
 
 import { init } from "../../viz/public/js/state.js";
 import { layoutFeatures, stationBoxes, escaladeBoxes } from "../../viz/public/js/layout.js";
+import { OFFICE, kanbanLayout } from "../../viz/public/js/office-layout.js";
 import {
   STATUS_COLORS,
   STATUS_LABELS,
   UNKNOWN_COLOR,
   approach,
+  assetsWarning,
   capacityFor,
   colorCss,
   featureForInstance,
   featureInstances,
   featureLabel,
   fitCamera,
+  kanbanPositions,
   legendEntries,
   sceneBounds,
   stationName,
   statusColor,
   stepPositions,
   toNdc,
+  zoneLabels,
 } from "../../viz/public/js/view-model.js";
 import { feature, stateOf } from "./support.mjs";
 
@@ -266,5 +270,62 @@ describe("géométrie de la vue", () => {
   test("fitCamera : une emprise minuscule ne place pas la caméra sur la cible", () => {
     const bounds = { minX: -1, maxX: 1, minZ: -1, maxZ: 1, height: 1 };
     assert.ok(fitCamera(bounds).distance >= 10);
+  });
+});
+
+describe("bureau : noms de zones, post-its, avertissement", () => {
+  test("zoneLabels : le nom de chaque zone d'OFFICE, puis une en-tête par colonne du kanban (escalade en rouge)", () => {
+    const labels = zoneLabels(OFFICE);
+    const zones = labels.filter((l) => !l.id.startsWith("kanban:"));
+    assert.deepEqual(zones.map((l) => l.text), Object.values(OFFICE.zones).map((z) => z.name));
+    assert.deepEqual(zones.map((l) => l.id), Object.keys(OFFICE.zones));
+    for (const l of zones) {
+      const zone = OFFICE.zones[l.id];
+      assert.ok(Math.abs(l.x - zone.x) <= zone.width / 2 && Math.abs(l.z - zone.z) <= zone.depth / 2, `${l.text} est dans sa zone`);
+    }
+    assert.equal(zones.find((l) => l.id === "escalade").kind, "escalade");
+    assert.equal(zones.find((l) => l.id === "dev").kind, "zone");
+
+    const columns = labels.filter((l) => l.id.startsWith("kanban:"));
+    assert.deepEqual(columns.map((l) => l.text), ["Cadrage", "Roadmap", "Développement", "Vérification", "Test", "Merge", "Release", "Escalade"]);
+    assert.deepEqual(columns.map((l) => l.x), OFFICE.kanban.columns.map((c) => c.x));
+    assert.deepEqual(columns.map((l) => l.kind), [...Array(7).fill("column"), "escalade"]);
+    assert.ok(columns.every((l) => l.y > OFFICE.kanban.top && l.z === OFFICE.kanban.z));
+    columns.slice(1).forEach((l, i) => assert.notEqual(l.y, columns[i].y, "deux colonnes voisines ne sont pas à la même hauteur (leurs noms se chevaucheraient)"));
+  });
+
+  test("zoneLabels : les colonnes passent par stationName (une station inconnue garde son identifiant)", () => {
+    const office = { zones: {}, kanban: { top: 5, z: -9, columns: [{ id: "dev", x: 0 }, { id: "inconnue", x: 3 }] } };
+    assert.deepEqual(zoneLabels(office).map((l) => l.text), ["Développement", "inconnue"]);
+  });
+
+  test("kanbanPositions + featureInstances : un post-it par feature affichée, de la couleur de son statut, trié par numéro", () => {
+    const model = modelOf([feature(3, "in-review"), feature(1, "ready"), feature(2, "blocked")]);
+    const layout = kanbanLayout(model);
+    const positions = kanbanPositions(layout);
+    assert.deepEqual([...positions.keys()].sort(), [1, 2, 3]);
+    const instances = featureInstances(model, positions);
+    assert.deepEqual(instances.map((i) => i.number), [1, 2, 3]);
+    assert.deepEqual(instances.map((i) => i.color), [STATUS_COLORS.ready, STATUS_COLORS.blocked, STATUS_COLORS["in-review"]]);
+    for (const instance of instances) {
+      const note = layout.notes.find((n) => n.number === instance.number);
+      assert.deepEqual(instance.position, { x: note.x, y: note.y, z: note.z });
+      assert.equal(instance.station, note.column);
+    }
+    assert.equal(instances[1].station, "escalade");
+    assert.deepEqual(featureForInstance(instances, 1), instances[1], "instance -> feature");
+  });
+
+  test("kanbanPositions : une feature au-delà du plafond de sa colonne n'a pas de post-it", () => {
+    const model = modelOf(Array.from({ length: 11 }, (_, i) => feature(i + 1, "in-progress")));
+    const layout = kanbanLayout(model);
+    assert.equal(kanbanPositions(layout).size, layout.notes.length);
+    assert.equal(featureInstances(model, kanbanPositions(layout)).length, layout.notes.length);
+    assert.ok(layout.notes.length < 11);
+  });
+
+  test("assetsWarning : nomme le nombre de fichiers, au singulier comme au pluriel", () => {
+    assert.match(assetsWarning(1), /^1 fichier 3D n'a pas pu être chargé/);
+    assert.match(assetsWarning(4), /^4 fichiers 3D n'ont pas pu être chargés/);
   });
 });
