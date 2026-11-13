@@ -19,10 +19,10 @@ describe("analyse du code source", () => {
     });
   }
 
-  test("layout.js ne dépend que de state.js, et state.js de rien", () => {
+  test("layout.js ne dépend que de state.js et d'office-layout.js, et state.js de rien", () => {
     assert.doesNotMatch(code("state.js"), /^\s*import\b/m);
     const imports = [...code("layout.js").matchAll(/from\s*["']([^"']+)["']/g)].map((m) => m[1]);
-    assert.deepEqual(imports, ["./state.js"]);
+    assert.deepEqual(imports, ["./state.js", "./office-layout.js"]);
   });
 });
 

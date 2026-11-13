@@ -1,4 +1,4 @@
-// Disposition 3D du pipeline : positions des 7 stations sur un axe, de la zone d'escalade, des features en file dans
+// Disposition 3D de l'ancien pipeline (conservée jusqu'à M6, plus dessinée) : positions des 7 stations sur un axe, des features en file dans
 // chaque station et des agents. Module pur : aucun import de `three`, aucun DOM, ni hasard ni horloge. Les positions
 // sont de simples objets { x, y, z } (c'est `scene.js` qui les convertit en `Vector3`). ADR 0006 et 0007.
 //
@@ -10,6 +10,7 @@
 // toujours les mêmes positions, quel que soit l'ordre des tableaux en entrée.
 
 import { STATIONS, ESCALADE } from "./state.js";
+import { MAX_DEV_SEATS, OFFICE, devSeat, seatFor } from "./office-layout.js";
 
 export const LAYOUT = Object.freeze({
   stationWidth: 18,
@@ -26,11 +27,6 @@ export const LAYOUT = Object.freeze({
   cell: 1.2,
   floorY: 0.6,
   layerHeight: 1.2,
-  // Agents : hauteur au-dessus de la feature traitée, pas entre deux agents empilés, survol d'une station.
-  agentOverFeature: 2,
-  agentStack: 1,
-  agentHover: 2.5,
-  agentPitch: 2,
 });
 
 const SPACING = LAYOUT.stationWidth + LAYOUT.stationGap;
@@ -188,79 +184,46 @@ export function layoutFeatures(model) {
 
 // --- Agents ---------------------------------------------------------------------------------------------------------------
 
-// Positions de répartition de `n` éléments autour de `center`, espacés de `pitch` au plus et sans dépasser `span`.
-function spread(center, index, n, span) {
-  const pitch = Math.min(LAYOUT.agentPitch, span / Math.max(n, 1));
-  return center + (index - (n - 1) / 2) * pitch;
-}
+// Hauteur des sphères d'agents au-dessus du sol : à peu près la tête d'un bonhomme (M6).
+export const AGENT_HEIGHT = 1.7;
+const WAIT_PITCH = 1;
 
-// Positions des agents. Un agent qui traite une feature affichée est placé au-dessus d'elle (empilé s'ils sont
-// plusieurs) ; sinon au-dessus de sa station (répartis le long de l'axe x) ; un agent d'escalade sans feature
-// survole le milieu de la rangée des zones d'escalade ; un agent sans station connue attend avant la première
-// station. Renvoie une Map id -> { x, y, z, anchor: "feature" | "station" | "escalade" | "none", feature, station }.
-export function layoutAgents(model, featurePositions = layoutFeatures(model)) {
+// Positions des agents, dérivées du plan du bureau (`office-layout.js`) : un agent est placé à la place de sa station
+// (`seatFor`, `devSeat`) ; les agents d'une même zone occupent les places dans l'ordre d'arrivée (`since`, puis `id`),
+// les développeurs les postes de l'open space. Un agent sans place (station `merge`, `release`, ou inconnue) attend dans
+// le couloir, devant la porte. Renvoie une Map id -> { x, y, z, anchor: "seat" | "door", seat: clé de la place | null,
+// station }.
+export function layoutAgents(model) {
   const agents = [...model.agents].sort((a, b) => (a.since < b.since ? -1 : a.since > b.since ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   const out = new Map();
+  const taken = new Map(); // zone -> nombre d'agents déjà placés
+  let waiting = 0;
 
-  const onFeature = new Map(); // numéro -> agents
-  const onStation = new Map(); // station | "escalade" | "none" -> agents
   for (const a of agents) {
-    if (a.issue !== null && featurePositions.has(a.issue)) {
-      if (!onFeature.has(a.issue)) onFeature.set(a.issue, []);
-      onFeature.get(a.issue).push(a);
+    const zone = a.station === null ? "none" : a.station;
+    const rank = taken.get(zone) ?? 0;
+    taken.set(zone, rank + 1);
+    const seat = a.station === "dev" ? devSeat(Math.min(rank, MAX_DEV_SEATS - 1)) : seatFor(a.station, a.type, rank);
+    if (seat === null) {
+      const { entry } = OFFICE.door;
+      out.set(a.id, { x: entry.x + waiting * WAIT_PITCH, y: AGENT_HEIGHT, z: entry.z, anchor: "door", seat: null, station: a.station });
+      waiting += 1;
     } else {
-      const key = STATIONS.includes(a.station) || a.station === ESCALADE ? a.station : "none";
-      if (!onStation.has(key)) onStation.set(key, []);
-      onStation.get(key).push(a);
+      out.set(a.id, { x: seat.x, y: AGENT_HEIGHT, z: seat.z, anchor: "seat", seat: seat.key, station: a.station });
     }
-  }
-
-  for (const [issue, list] of onFeature) {
-    const p = featurePositions.get(issue);
-    list.forEach((a, k) => {
-      out.set(a.id, {
-        x: p.x,
-        y: p.y + LAYOUT.agentOverFeature + k * LAYOUT.agentStack,
-        z: p.z,
-        anchor: "feature",
-        feature: issue,
-        station: a.station,
-      });
-    });
-  }
-
-  const innerW = LAYOUT.stationWidth - 2 * LAYOUT.padding;
-  for (const [key, list] of onStation) {
-    list.forEach((a, k) => {
-      let point;
-      let anchor;
-      if (key === "none") {
-        anchor = "none";
-        point = { x: stationX(0) - SPACING, y: LAYOUT.agentHover, z: spread(0, k, list.length, LAYOUT.stationDepth) };
-      } else if (key === ESCALADE) {
-        anchor = "escalade";
-        const zone = escaladeBox(STATIONS[0]);
-        point = { x: spread(0, k, list.length, innerW), y: zone.height + LAYOUT.agentHover, z: zone.z };
-      } else {
-        anchor = "station";
-        const box = stationBox(key);
-        point = { x: spread(box.x, k, list.length, innerW), y: box.height + LAYOUT.agentHover, z: box.z };
-      }
-      out.set(a.id, { ...point, anchor, feature: null, station: a.station });
-    });
   }
   return out;
 }
 
 // --- Scène complète -----------------------------------------------------------------------------------------------------
 
-// Tout ce que `scene.js` doit dessiner pour ce modèle.
+// Tout ce que l'ancienne scène dessinait pour ce modèle (stations, files, agents). Les agents viennent d'office-layout.js.
 export function layoutScene(model) {
-  const features = layoutFeatures(model);
   return {
     stations: stationBoxes(),
     escalades: escaladeBoxes(),
-    features,
-    agents: layoutAgents(model, features),
+    features: layoutFeatures(model),
+    agents: layoutAgents(model),
   };
 }
+

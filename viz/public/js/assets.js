@@ -10,7 +10,9 @@ const VENDOR = "vendor/kenney";
 const CLIPS = ["idle", "walk", "sit", "interact-right", "emote-yes", "emote-no", "holding-both"];
 
 const character = (id, role) => ({ id, role, path: `${VENDOR}/characters/${id}.glb`, scale: 1, clips: [...CLIPS] });
-const furniture = (id) => ({ id, path: `${VENDOR}/furniture/${id}.glb`, scale: 1 });
+// Le Furniture Kit 2.0 est modelé deux fois trop petit pour le bureau (bureau de 0,73 de large pour 1,6 prévu) : échelle 2.
+const FURNITURE_SCALE = 2;
+const furniture = (id) => ({ id, path: `${VENDOR}/furniture/${id}.glb`, scale: FURNITURE_SCALE });
 
 function deepFreeze(value) {
   if (value && typeof value === "object" && !Object.isFrozen(value)) {
