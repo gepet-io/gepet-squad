@@ -103,6 +103,14 @@ describe("mimeFor (unitaire)", () => {
     assert.equal(mimeFor("/p/A.JS"), "text/javascript; charset=utf-8");
   });
 
+  test(".glb est servi en model/gltf-binary, sans distinction de casse ; .gltf et .bin restent refusés", () => {
+    assert.equal(mimeFor("x.glb"), "model/gltf-binary");
+    assert.equal(mimeFor("X.GLB"), "model/gltf-binary");
+    assert.equal(mimeFor("/vendor/kenney/a.glb"), "model/gltf-binary");
+    assert.equal(mimeFor("x.gltf"), null);
+    assert.equal(mimeFor("x.bin"), null);
+  });
+
   test("tout le reste est refusé (null)", () => {
     for (const name of ["a.txt", "a.md", "a.map", "a.mjs", "a.html.bak", "a.exe", "noext", ".env", "a.js::$DATA", "a.constructor", "a.__proto__", ""]) {
       assert.equal(mimeFor(`/p/${name}`), null, name);
@@ -356,7 +364,7 @@ async function listenerSetup(t, { state = () => ({ ok: "etat" }), prepare } = {}
         (res) => {
           const chunks = [];
           res.on("data", (chunk) => chunks.push(chunk));
-          res.on("end", () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks).toString("utf8") }));
+          res.on("end", () => { const bytes = Buffer.concat(chunks); resolve({ status: res.statusCode, headers: res.headers, bytes, body: bytes.toString("utf8") }); });
         },
       );
       req.on("error", reject);
@@ -376,6 +384,38 @@ describe("createRequestListener (intégration locale)", () => {
     assert.equal(res.headers["x-content-type-options"], "nosniff");
     assert.equal(res.headers["referrer-policy"], "no-referrer");
     assert.equal(res.headers["cache-control"], undefined);
+  });
+
+  test(".glb : 200, model/gltf-binary, octets identiques et mêmes en-têtes de sécurité", async (t) => {
+    // Octets qui ne survivraient pas à une conversion UTF-8 (0xff, 0xfe, 0x80, nul, en-tête « glTF »).
+    const glb = Buffer.from([0x67, 0x6c, 0x54, 0x46, 0x02, 0x00, 0x00, 0x00, 0xff, 0xfe, 0x80, 0x00, 0xc3, 0x28, 0x0a, 0x0d]);
+    const { get, csp } = await listenerSetup(t, {
+      prepare: ({ publicDir }) => {
+        fs.mkdirSync(path.join(publicDir, "vendor", "kenney"), { recursive: true });
+        fs.writeFileSync(path.join(publicDir, "vendor", "kenney", "perso.glb"), glb);
+        fs.writeFileSync(path.join(publicDir, "vendor", "kenney", "perso.gltf"), "{}");
+      },
+    });
+    const res = await get("/vendor/kenney/perso.glb");
+    assert.equal(res.status, 200);
+    assert.equal(res.headers["content-type"], "model/gltf-binary");
+    assert.equal(res.headers["content-length"], String(glb.length));
+    assert.ok(res.bytes.equals(glb), "corps identique octet pour octet");
+    assert.equal(res.headers["content-security-policy"], csp);
+    assert.equal(res.headers["x-content-type-options"], "nosniff");
+    assert.equal(res.headers["referrer-policy"], "no-referrer");
+    assert.equal((await get("/vendor/kenney/perso.gltf")).status, 404);
+  });
+
+  test(".glb hors du dossier public : traversée refusée (403), encodée ou non", async (t) => {
+    const { get } = await listenerSetup(t, {
+      prepare: ({ root }) => fs.writeFileSync(path.join(root, "x.glb"), "HORS-RACINE"),
+    });
+    for (const cible of ["/vendor/../../x.glb", "/../x.glb", "/vendor/..%2f..%2fx.glb", "/vendor/%2e%2e/%2e%2e/x.glb"]) {
+      const res = await get(cible);
+      assert.equal(res.status, 403, cible);
+      assert.ok(!res.body.includes("HORS-RACINE"), cible);
+    }
   });
 
   test("un lien symbolique qui sort du dossier public donne 403 sans fuite", async (t) => {
