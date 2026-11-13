@@ -1,6 +1,6 @@
 {
   "name": "gepet-squad",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Une squad IT d'agents (Architecte, Chef de projet, Développeur, Vérificateur, Testeur) qui transforme un simple prompt en projet livré : cadrage, roadmap, user stories sur GitHub, dev en parallèle, code review, tests de non-régression, merge et release par milestone.",
   "author": {
     "name": "gohugow",

@@ -1,6 +1,6 @@
 # Roadmap — gepet-squad : visualisation 3D temps réel (`/gepet-squad-viz`)
 
-Référence : [ARCHITECTURE.md](architecture/ARCHITECTURE.md) et ses ADR. Versions du plugin : **0.2.0** (M1, collecte), **0.3.0** (M2, serveur), **0.4.0** (M3, vue 3D et commande), **0.6.0** (M4, économie de tokens).
+Référence : [ARCHITECTURE.md](architecture/ARCHITECTURE.md) et ses ADR. Versions du plugin : **0.2.0** (M1, collecte), **0.3.0** (M2, serveur), **0.4.0** (M3, vue 3D et commande), **0.6.0** (M4, économie de tokens), **0.8.0** (M5, bureau 3D), **0.9.0** (M6, bonshommes vivants).
 
 ## Vue d'ensemble
 | Milestone | Objectif livrable (démontrable) | Features | Sous-projets |
@@ -9,6 +9,8 @@ Référence : [ARCHITECTURE.md](architecture/ARCHITECTURE.md) et ses ADR. Versio
 | M2 — Serveur temps réel | `node viz/server.cjs --project <dir>` sert `/state` (état fusionné journal + GitHub), pousse les nouveaux événements en SSE et gère `status` / `stop` ; le modèle client (`state.js`, `layout.js`) est prêt et testé | F-05…F-09, F-15 | viz-server, viz-web |
 | M3 — Vue 3D et commande | `/gepet-squad-viz` ouvre une page 3D qui montre le pipeline, les features et les agents lumineux en temps réel ; repli texte sans WebGL ; plugin en 0.4.0 | F-10…F-14 | viz-web, skills |
 | M4 — Économie de tokens | Rapports d'agents en 5 lignes (détail sur la PR), missions épurées à préfixe stable, état du CP lu à la demande dans GitHub et `docs/roadmap.md` ; plugin en 0.6.0 | F-16…F-18 | skills |
+| M5 — Bureau 3D : décor et kanban | `/gepet-squad-viz` montre un bureau 3D low-poly meublé (assets Kenney CC0) et un kanban mural de post-its à la place du pipeline ; agents encore en sphères, placés dans leur zone ; plugin en 0.8.0 | F-19…F-25 | repo, viz-server, viz-web, skills |
+| M6 — Bonshommes vivants | Les agents sont de petits bonhommes animés qui entrent, travaillent à leur poste, montrent leur verdict et repartent ; bloom et sphères retirés ; plugin en 0.9.0 | F-26…F-31 | viz-web, skills |
 
 ## Graphe de dépendances
 ```
@@ -21,11 +23,15 @@ F-08 + F-09 + F-10 → F-11 → F-12
                      F-11 → F-13
 F-08 → F-15
 F-12 + F-13 + F-15 → F-14
+F-19 → F-22 → F-23 → F-24 → F-25
+F-20 → F-24 ; F-21 → F-24
+F-23 → F-26 → F-27 → F-31 → F-28 → F-29 → F-30
+F-24 → F-28
 ```
-Parallélisations prévues : F-05 ∥ F-06 puis F-07 ∥ F-09 (M2) ; F-12 ∥ F-13 (M3).
+Parallélisations prévues : F-05 ∥ F-06 puis F-07 ∥ F-09 (M2) ; F-12 ∥ F-13 (M3) ; F-19 ∥ F-20 ∥ F-21 (M5).
 À ne pas paralléliser : deux features qui touchent `hooks/hooks.json` (seule F-04 le modifie) ; F-07, F-08 et F-15 (mêmes fichiers `http.cjs` / `server.cjs`).
 
-Versionnage (`CLAUDE.md` : bump + CHANGELOG à chaque changement de comportement) : la **dernière feature de chaque milestone** fait le bump mineur de `.claude-plugin/plugin.json` et rédige l'entrée de `CHANGELOG.md` de son milestone ; aucune autre feature ne touche ces deux fichiers. F-04 → 0.2.0, F-15 → 0.3.0, F-14 → 0.4.0, F-18 → 0.6.0.
+Versionnage (`CLAUDE.md` : bump + CHANGELOG à chaque changement de comportement) : la **dernière feature de chaque milestone** fait le bump mineur de `.claude-plugin/plugin.json` et rédige l'entrée de `CHANGELOG.md` de son milestone ; aucune autre feature ne touche ces deux fichiers. F-04 → 0.2.0, F-15 → 0.3.0, F-14 → 0.4.0, F-18 → 0.6.0, F-25 → 0.8.0, F-30 → 0.9.0.
 
 ---
 
@@ -634,6 +640,445 @@ S
 
 ---
 
+## M5 — Bureau 3D : décor et kanban
+**Objectif** : `/gepet-squad-viz` montre un bureau 3D low-poly meublé (assets Kenney CC0) avec un kanban mural de post-its à la place du pipeline abstrait ; les agents restent provisoirement les sphères lumineuses actuelles, placées dans la zone du bureau qui correspond à leur station.
+**Définition de fin** : F-19 à F-25 mergées ; les assets Kenney sont vendorés et contrôlés (sha256, clips, aucune image embarquée) ; le serveur sert les `.glb` ; la scène affiche le bureau et le kanban sans erreur CSP ; `npm test` et `npm run lint` au vert ; plugin en 0.8.0.
+**Prérequis utilisateur** : avant de lancer F-19, le CP vérifie la présence de `D:/DevClaude/kenney-zips/kenney_mini-characters.zip` et `D:/DevClaude/kenney-zips/kenney_furniture-kit.zip`. S'ils manquent, il les demande à l'utilisateur et ne lance que F-20 et F-21 en attendant.
+
+### F-19 · [repo] Vendorer les assets Kenney (personnages et mobilier) avec leur contrôle d'intégrité
+## Contexte
+Le bureau de l'ADR 0009 a besoin de bonhommes riggés et animés et de mobilier de bureau. L'ADR 0010 retient Kenney Mini Characters 2.0 et Kenney Furniture Kit 2.0 (CC0), vendorés dans le plugin pour rester sans build ni réseau. Le téléchargement Kenney n'est pas automatisable : un script extrait les fichiers retenus des zips téléchargés à la main et épingle leurs sha256. Sans `*.glb binary`, la règle `* text=auto eol=lf` corromprait les GLB au checkout Windows : c'est à régler avant tout commit d'asset.
+
+## Objectif
+`scripts/vendor-assets.sh <zip-mini-characters> <zip-furniture-kit>` remplit `viz/public/vendor/kenney/` (personnages, texture, mobilier, licences, `SOURCE.md`), et un test d'intégration garantit l'intégrité et la compatibilité CSP des fichiers commités.
+
+## Critères d'acceptance
+- [ ] `.gitattributes` contient `*.glb binary` et `*.png binary`, avant la règle `viz/public/vendor/** linguist-vendored` ; `git check-attr text -- viz/public/vendor/kenney/characters/<x>.glb` renvoie `unset`.
+- [ ] `bash scripts/vendor-assets.sh <zip-chars> <zip-furniture>` extrait uniquement la liste de fichiers déclarée en tête du script : exactement 7 personnages dans `viz/public/vendor/kenney/characters/` (un pour le chef de projet, l'architecte, le vérificateur, le testeur, et 3 pour les développeurs ; aucun modèle de type arme ou fantaisie), `characters/Textures/colormap.png`, une quinzaine de meubles dans `furniture/` (au moins `desk`, `chairDesk`, `computerScreen`, `computerKeyboard`, `laptop`, `doorway`, `wall`, `wallWindow`, `floorFull`, `table`, `bookcaseOpen`, `pottedPlant`, `kitchenCoffeeMachine`), `LICENSE-mini-characters.txt` et `LICENSE-furniture-kit.txt` (copies des `License.txt`).
+- [ ] Le script réécrit `viz/public/vendor/kenney/SOURCE.md` : URL des pages des packs, version, date, puis une ligne par fichier retenu avec son chemin relatif et son sha256.
+- [ ] Sans argument, avec un zip absent ou avec un zip auquel il manque un fichier listé, le script s'arrête avec un code non nul et un message qui nomme le fichier en cause, sans avoir modifié `viz/public/vendor/kenney/`. Il ne télécharge jamais rien (aucun `curl`/`wget`).
+- [ ] Tests unitaires : la fonction Node de lecture d'un GLB (en-tête binaire, chunk JSON) — placée dans `tests/helpers/` — est testée sur un GLB minimal construit en mémoire : clips lus, image embarquée détectée (`bufferView`), image externe détectée (`uri`), fichier tronqué rejeté.
+- [ ] Tests d'intégration (`tests/viz-web/kenney-assets.test.mjs`) : chaque fichier listé dans `SOURCE.md` existe et son sha256 correspond ; chaque GLB de `characters/` contient les clips `idle`, `walk`, `sit`, `interact-right`, `emote-yes`, `emote-no` et `holding-both` ; aucun GLB n'embarque d'image ; toute image référencée par `uri` existe sur disque ; les deux licences sont présentes et mentionnent CC0.
+- [ ] Lint, build et suite de tests complète au vert : `npm run lint`, `npm test`, `bash -n scripts/vendor-assets.sh`, et `bash -n scripts/vendor-assets.sh` ajouté à l'étape `bash -n` du workflow CI.
+
+## Notes techniques
+- Sous-projet : `repo`
+- ADR de référence : `docs/architecture/adr/0010-assets-3d-cc0-vendores-gltf.md`
+- Fichiers / modules concernés : `scripts/vendor-assets.sh` (nouveau), `.gitattributes`, `viz/public/vendor/kenney/**` (nouveau), `tests/helpers/` (lecteur GLB), `tests/viz-web/kenney-assets.test.mjs` (nouveau), `.github/workflows/*`
+- **Zips** : l'utilisateur les dépose dans `D:/DevClaude/kenney-zips/` (`kenney_mini-characters.zip`, `kenney_furniture-kit.zip`). S'ils sont absents, se déclarer `BLOQUÉ` (ne pas chercher d'autre source).
+- Contraintes : F-19 est la seule feature de M5 à créer un fichier dans `tests/helpers/` ; ne jamais modifier un asset à la main ; garder l'arborescence `characters/Textures/colormap.png` attendue par les GLB ; ne pas toucher `.claude-plugin/plugin.json` ni `CHANGELOG.md` (F-25).
+
+## Skills / outils recommandés
+- `npx @gltf-transform/cli inspect <fichier.glb>` (en dev uniquement, jamais en dépendance) pour vérifier clips et images.
+- glTF Viewer de Don McCurdy (https://gltf-viewer.donmccurdy.com/) pour choisir les personnages.
+
+## Dépendances
+- aucune
+
+## Taille
+M
+
+### F-20 · [viz-server] Servir les modèles `.glb` en `model/gltf-binary`
+## Contexte
+Le navigateur charge les bonhommes et le mobilier au format GLB depuis `/vendor/kenney/`. La liste blanche MIME de `viz/lib/http.cjs` (ADR 0005) ne connaît pas `.glb` : ces fichiers renvoient aujourd'hui 404. L'ADR 0010 ajoute ce seul type, sans rien changer d'autre à la sécurité du serveur.
+
+## Objectif
+`GET /vendor/<chemin>.glb` renvoie 200 avec `Content-Type: model/gltf-binary` et les mêmes en-têtes de sécurité que les autres fichiers statiques.
+
+## Critères d'acceptance
+- [ ] `mimeFor('x.glb')` et `mimeFor('X.GLB')` renvoient `model/gltf-binary` ; `mimeFor('x.gltf')` et `mimeFor('x.bin')` renvoient toujours `null` (liste blanche inchangée par ailleurs).
+- [ ] Le contenu d'un `.glb` est renvoyé octet pour octet (aucune conversion de texte ni d'encodage).
+- [ ] Un chemin `.glb` hors de `viz/public` (`/vendor/../../x.glb`, encodé ou non) reste refusé comme aujourd'hui.
+- [ ] Tests unitaires : `mimeFor` sur `.glb`, `.GLB`, `.gltf`, `.bin`.
+- [ ] Tests d'intégration (`tests/viz-server/http.test.cjs` ou `server.test.cjs`) : serveur démarré sur un dossier public temporaire (`fs.mkdtemp`) dans lequel le test écrit un petit fichier `.glb` binaire au moment du test (rien d'ajouté à `tests/fixtures/public/`) → 200, `Content-Type: model/gltf-binary`, corps identique au fichier, en-tête CSP présent et inchangé ; traversée de chemin → refus.
+- [ ] Lint, build et suite de tests complète au vert (`npm run lint`, `npm test`).
+
+## Notes techniques
+- Sous-projet : `viz-server`
+- ADR de référence : `docs/architecture/adr/0010-assets-3d-cc0-vendores-gltf.md`, `docs/architecture/adr/0005-*`
+- Fichiers / modules concernés : `viz/lib/http.cjs` (`MIME_TYPES`), `tests/viz-server/http.test.cjs`, `tests/viz-server/server.test.cjs`
+- Contraintes : la CSP ne change pas ; ne pas dépendre des fichiers de F-19 (fixture de test autonome).
+
+## Skills / outils recommandés
+- aucun en particulier
+
+## Dépendances
+- aucune
+
+## Taille
+S
+
+### F-21 · [viz-web] Vendorer les addons Three.js de chargement glTF
+## Contexte
+Pour charger et animer les GLB Kenney, le front a besoin de `GLTFLoader` et de `SkeletonUtils.clone` (plusieurs développeurs sur un même modèle). Dans Three.js 0.187.0, `GLTFLoader` importe aussi `BufferGeometryUtils`. L'ADR 0010 amende l'ADR 0002 : ces trois addons entrent dans le vendoring. Les addons `postprocessing/*` restent pour l'instant, car `agents.js` les utilise encore (retrait en F-29).
+
+## Objectif
+`scripts/vendor-three.sh` vendore `loaders/GLTFLoader.js`, `utils/SkeletonUtils.js` et `utils/BufferGeometryUtils.js` de Three.js 0.187.0, et la page peut les importer via l'importmap existant.
+
+## Critères d'acceptance
+- [ ] `scripts/vendor-three.sh` liste les trois addons ; relancé, il produit `viz/public/vendor/three/addons/loaders/GLTFLoader.js`, `addons/utils/SkeletonUtils.js` et `addons/utils/BufferGeometryUtils.js`, identiques aux fichiers du paquet `three@0.187.0`.
+- [ ] Three.js reste en 0.187.0 et les addons `postprocessing/*` et `controls/OrbitControls.js` déjà vendorés sont toujours présents.
+- [ ] `import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js"` et `import * as SkeletonUtils from "three/addons/utils/SkeletonUtils.js"` se résolvent avec l'importmap de `viz/public/index.html` (aucun nouvel import hors de `vendor/three`).
+- [ ] Tests unitaires : `tests/viz-web/vendor.test.mjs` vérifie la présence des trois nouveaux fichiers, que chacun de leurs imports relatifs pointe vers un fichier vendoré, et que leur en-tête de licence MIT est conservé.
+- [ ] Tests d'intégration : sous Node avec `tests/viz-web/three-register.mjs`, `GLTFLoader` et `SkeletonUtils` s'importent sans erreur, et `new GLTFLoader().parse()` d'un GLB minimal construit en mémoire (un mesh, sans image) produit une scène contenant ce mesh.
+- [ ] Lint, build et suite de tests complète au vert (`npm run lint`, `npm test`, `bash -n scripts/vendor-three.sh`).
+
+## Notes techniques
+- Sous-projet : `viz-web`
+- ADR de référence : `docs/architecture/adr/0010-assets-3d-cc0-vendores-gltf.md`, `docs/architecture/adr/0002-stack-sans-build-three-vendore-sse.md`
+- Fichiers / modules concernés : `scripts/vendor-three.sh`, `viz/public/vendor/three/addons/**`, `tests/viz-web/vendor.test.mjs`
+- Contraintes : ne retirer aucun addon ici ; ne pas toucher `viz/public/js/*` ; le GLB minimal est construit dans le fichier de test de cette feature, sans toucher `tests/helpers/` (créé par F-19 en parallèle).
+
+## Skills / outils recommandés
+- aucun en particulier
+
+## Dépendances
+- aucune
+
+## Taille
+S
+
+### F-22 · [viz-web] Manifeste pur des assets 3D (`assets.js`) et contrôle de pureté partagé
+## Contexte
+Les modules de décision (`crew.js`) et de rendu (`scene.js`, `characters.js`) doivent savoir quel modèle utiliser pour quel rôle, à quelle échelle, et quels clips sont requis. L'ADR 0010 place cette liste dans un module pur, `assets.js`, qui fait foi. Pour qu'aucun module pur suivant n'ait à modifier `tests/viz-web/purity.test.mjs`, le contrôle de pureté devient un helper réutilisable.
+
+## Objectif
+`viz/public/js/assets.js` exporte le manifeste figé des assets (personnages par rôle, mobilier, texture, clips requis, échelles), et `support.mjs` exporte un helper de contrôle de pureté que chaque module pur appelle depuis son propre fichier de test.
+
+## Critères d'acceptance
+- [ ] `assets.js` exporte un manifeste gelé (`Object.freeze` profond) : pour chaque personnage, son chemin sous `vendor/kenney/`, son rôle (`chef-de-projet`, `architecte`, `developpeur`, `verificateur`, `testeur`), son échelle et ses clips requis ; pour chaque meuble, son identifiant, son chemin et son échelle.
+- [ ] Un modèle distinct par rôle (chef de projet, architecte, vérificateur, testeur) et exactement 3 modèles de développeur ; `characterFor(role, index)` renvoie le modèle du rôle, et pour `developpeur` le modèle `index % 3` ; un rôle inconnu renvoie `null`.
+- [ ] `assets.js` n'importe ni `three`, ni le DOM, ni l'horloge, ni le hasard.
+- [ ] `tests/viz-web/support.mjs` exporte `assertPure(file)` (analyse du source et exécution avec pièges sur les globales du navigateur, logique reprise de `purity.test.mjs`) ; `purity.test.mjs` l'utilise pour ses modules actuels et son comportement est inchangé.
+- [ ] Tests unitaires (`tests/viz-web/assets.test.mjs`) : forme du manifeste, unicité des chemins et des identifiants, `characterFor` (rôles, indices 0 à 5, rôle inconnu), immutabilité, et `assertPure("assets.js")`.
+- [ ] Tests d'intégration (`tests/viz-web/assets.test.mjs`) : chaque chemin du manifeste existe dans `viz/public/vendor/kenney/SOURCE.md` et sur disque ; les clips requis du manifeste sont un sous-ensemble des clips réellement présents dans chaque GLB (lecteur GLB de F-19).
+- [ ] Lint, build et suite de tests complète au vert (`npm run lint`, `npm test`).
+
+## Notes techniques
+- Sous-projet : `viz-web`
+- ADR de référence : `docs/architecture/adr/0010-assets-3d-cc0-vendores-gltf.md`, `docs/architecture/adr/0006-strategie-de-tests.md`
+- Fichiers / modules concernés : `viz/public/js/assets.js` (nouveau), `tests/viz-web/assets.test.mjs` (nouveau), `tests/viz-web/support.mjs`, `tests/viz-web/purity.test.mjs`
+- Contraintes : F-23, F-26, F-27 et F-31 ne modifient pas `purity.test.mjs` (chacune appelle `assertPure` dans son propre fichier de test) ; seules F-24 et F-29 l'adaptent (dépendances de `layout.js`, puis sa suppression).
+
+## Skills / outils recommandés
+- `engineering:testing-strategy` : factorisation du contrôle de pureté.
+
+## Dépendances
+- F-19
+
+## Taille
+S
+
+### F-23 · [viz-web] Plan pur du bureau (`office-layout.js`) : zones, postes, porte, kanban
+## Contexte
+L'ADR 0009 traduit chaque station de `/state` en zone du bureau (salle de réunion, open space, bureau du vérificateur, labo, kanban…). Ce plan doit être pur et testable sans WebGL, car il alimente à la fois le décor (`scene.js`), les post-its du kanban et, plus tard, les trajets des bonhommes (`paths.js`, `crew.js`). Il remplace à terme `layout.js`.
+
+## Objectif
+`viz/public/js/office-layout.js` décrit le bureau (zones, postes, porte, points de passage, mobilier placé) et calcule les positions des post-its du kanban à partir du modèle client.
+
+## Critères d'acceptance
+- [ ] `OFFICE` (gelé) décrit : la porte, une zone par station (`cadrage`, `roadmap`, `dev`, `verification`, `test`, `escalade`) selon le tableau de l'ADR 0009, le bureau permanent du chef de projet, 3 postes de développeur par défaut, et la liste du mobilier placé (identifiant du manifeste `assets.js`, position, rotation).
+- [ ] `devSeat(i)` renvoie le poste `i` **et ses meubles** (bureau, chaise, écran, clavier) pour `0 ≤ i < MAX_DEV_SEATS` (constante nommée, 8) ; les postes 3 et suivants sont supplémentaires ; tous restent dans l'emprise des murs et leurs boîtes englobantes sont disjointes de celles de tous les autres meubles ; `i ≥ MAX_DEV_SEATS` renvoie `null`.
+- [ ] Chaque poste a un **point d'accès** situé devant sa chaise (hors des boîtes de la chaise et du bureau) et un point assis.
+- [ ] `seatFor(station, role, rank)` gère les occupants simultanés : pour `cadrage`, `roadmap`, `verification`, `test` et `escalade`, `MAX_ZONE_SEATS = 3` (constante nommée) ; le rang 0 est le poste principal (position debout devant le kanban pour `roadmap`), les rangs 1 et 2 sont des places debout dans la zone, dans les murs et hors de toute boîte de meuble ; un rang ≥ 3 renvoie la dernière place ; `seatFor(null, "architecte", r)` renvoie les places de `cadrage` ; `merge` et `release` renvoient `null` (pas d'occupant).
+- [ ] `waypoints()` renvoie, pour **chaque** position renvoyée par `devSeat` et `seatFor` (tous les rangs, place debout devant le kanban comprise), une polyligne de points de passage de la porte jusqu'à son point d'accès, dont aucun segment ne traverse une boîte englobante de meuble.
+- [ ] `kanbanLayout(model)` renvoie une position de post-it par feature visible : une colonne par station plus `escalade` ; dans chaque colonne, les features du milestone `open` de plus petit `number` d'abord, puis les autres par numéro de feature ; au-delà de `KANBAN_MAX_PER_COLUMN`, un compteur `{ column, extra: N }` remplace les post-its en trop.
+- [ ] Les mêmes entrées donnent toujours les mêmes sorties ; aucun import de `three`, du DOM, de l'horloge ou du hasard.
+- [ ] Tests unitaires (`tests/viz-web/office-layout.test.mjs`) : zones de chaque station, postes 0 à `MAX_DEV_SEATS - 1` disjoints et dans les murs, `null` au-delà, points d'accès hors des meubles, `seatFor` pour chaque station et chaque rang (places disjointes, rang ≥ 3, station `null`), segments de `waypoints` sans collision, tri et plafond du kanban (0, 1, plafond, plafond + 7 features), déterminisme, `assertPure("office-layout.js")`.
+- [ ] Tests d'intégration : chaque meuble placé (y compris ceux de `devSeat`) référence un identifiant existant du manifeste `assets.js` ; `kanbanLayout` appliqué à un état construit avec `support.mjs` (`stateOf`, `feature`, `milestone` : au moins 2 milestones, dont un fermé, et des features dans chaque colonne, escalade comprise) donne une position ou un compteur pour chaque feature, dans l'ordre attendu.
+- [ ] Lint, build et suite de tests complète au vert (`npm run lint`, `npm test`).
+
+## Notes techniques
+- Sous-projet : `viz-web`
+- ADR de référence : `docs/architecture/adr/0009-metaphore-bureau-3d.md`, `docs/architecture/adr/0011-animation-scriptee-des-bonhommes.md`
+- Fichiers / modules concernés : `viz/public/js/office-layout.js` (nouveau), `tests/viz-web/office-layout.test.mjs` (nouveau)
+- Contraintes : ne pas modifier `layout.js` ni `purity.test.mjs` ; les échelles Kenney (2018 et 2026) sont des constantes d'`assets.js` et de ce module.
+
+## Skills / outils recommandés
+- `design-taste-frontend` ou `high-end-visual-design` : composition du bureau et lisibilité du kanban vu de la caméra par défaut.
+
+## Dépendances
+- F-22
+
+## Taille
+M
+
+### F-24 · [viz-web] Scène bureau : décor GLB et kanban de post-its à la place du pipeline
+## Contexte
+C'est l'incrément visible du milestone : la page 3D montre le bureau meublé et le kanban au lieu des 7 stations abstraites (ADR 0009). Les agents restent provisoirement les sphères lumineuses d'`agents.js`, qu'on place dans la zone du bureau de leur station ; les bonhommes arrivent en M6. Le chargement des GLB peut échouer : la vue doit rester utilisable.
+
+## Objectif
+`scene.js` charge le mobilier GLB via `GLTFLoader` aux positions d'`office-layout.js`, dessine murs, sol et kanban de post-its, et les sphères d'agents apparaissent dans la zone de leur station.
+
+## Critères d'acceptance
+- [ ] `scene.js` charge chaque meuble d'`OFFICE` (chemins et échelles d'`assets.js`) par `GLTFLoader`, chaque fichier une seule fois puis cloné ; murs et sol sont posés ; les stations abstraites et les files de features de `layout.js` ne sont plus dessinées ; la caméra par défaut cadre tout le bureau et le kanban (`fitCamera` sur l'emprise d'`OFFICE`) ; le titre et l'`aria-label` « Pipeline » d'`index.html` deviennent « Bureau ».
+- [ ] Le kanban est un plan mural avec une colonne par station plus `escalade` (en rouge) ; les post-its forment un seul `InstancedMesh`, colorés par statut via `view-model.js` ; un `feature-move` fait glisser le post-it vers sa nouvelle colonne par les courbes de `motion.js` (déplacement immédiat avec `prefers-reduced-motion`) ; le compteur « +N » et le badge retry passent par `CSS2DRenderer` en `textContent`.
+- [ ] Le survol d'un post-it affiche `#N` et le titre de la feature (via `featureForInstance`) ; `labels.js` affiche les noms de zones fournis par `view-model.js`.
+- [ ] Les sphères d'`agents.js` sont positionnées dans la zone d'`office-layout.js` de leur station, et non plus au-dessus de leur feature (`layout.js` dérive ses positions d'agents de `office-layout.js`) ; les badges de retry quittent `agents.js` (`syncBadges`) pour le kanban ; `agents.test.mjs` est adapté (plus de badges, positions par zone).
+- [ ] Si un meuble ne se charge pas, il est omis, la scène continue de s'afficher, et `ui.js` affiche un avertissement unique qui nomme le nombre de fichiers en échec.
+- [ ] Aucune nouvelle source dans la CSP ; aucun `blob:` ; tout texte passe par `textContent`.
+- [ ] Tests unitaires : nouvelles fonctions pures éventuelles de `view-model.js` (noms de zones, couleurs de post-it) et adaptation de `layout.test.mjs`.
+- [ ] Tests d'intégration (`tests/viz-web/scene.test.mjs`) : sous Node avec `three-register.mjs` et un faux chargeur GLTF, la scène ajoute un objet par meuble d'`OFFICE`, un `InstancedMesh` dont le nombre d'instances visibles égale le nombre de post-its de `kanbanLayout`, met à jour l'instance après un `feature-move`, et un chargeur en échec produit l'avertissement sans exception.
+- [ ] Smoke manuel documenté dans la PR (capture et console) : le bureau et le kanban s'affichent avec `node viz/server.cjs --project <dir>` ; aucune erreur console ni CSP ; le repli `?mode=texte` fonctionne.
+- [ ] Lint, build et suite de tests complète au vert (`npm run lint`, `npm test`).
+
+## Notes techniques
+- Sous-projet : `viz-web`
+- ADR de référence : `docs/architecture/adr/0009-metaphore-bureau-3d.md`, `docs/architecture/adr/0010-assets-3d-cc0-vendores-gltf.md`, `docs/architecture/adr/0006-strategie-de-tests.md`
+- Fichiers / modules concernés : `viz/public/js/scene.js`, `viz/public/js/layout.js`, `viz/public/js/agents.js`, `viz/public/js/labels.js`, `viz/public/js/view-model.js`, `viz/public/js/ui.js`, `viz/public/index.html`, et les tests `scene`, `layout`, `agents`, `labels`, `view-model`, `integration`, `purity` (`layout.js` dépend désormais d'`office-layout.js`)
+- Contraintes : ne pas supprimer `agents.js`, `layout.js` ni les addons `postprocessing` (F-29) ; aucune logique de décision dans `scene.js` ; ne pas toucher `state.js` ni le contrat `/state`.
+
+## Skills / outils recommandés
+- `design-taste-frontend` / `high-end-visual-design` : palette, lumière, cadrage caméra du bureau.
+- `impeccable` : critique de l'interface une fois rendue.
+- `web-design-guidelines` : contraste des post-its, `prefers-reduced-motion`.
+- `run` (navigateur intégré) : smoke manuel.
+
+## Dépendances
+- F-20, F-21, F-23
+
+## Taille
+M
+
+### F-25 · [skills] Documenter le bureau 3D et publier la 0.8.0
+## Contexte
+Chaque changement de comportement du plugin s'accompagne d'un bump de version et d'une entrée de CHANGELOG (`CLAUDE.md`). La vue `/gepet-squad-viz` change de nature en M5 (bureau et kanban à la place du pipeline), et le plugin embarque désormais des assets tiers CC0 qu'il est recommandé de créditer.
+
+## Objectif
+README, skill `gepet-squad-viz`, CHANGELOG et `plugin.json` décrivent le bureau 3D, créditent Kenney, et le plugin passe en 0.8.0.
+
+## Critères d'acceptance
+- [ ] `.claude-plugin/plugin.json` : `version` passe à `0.8.0`.
+- [ ] `CHANGELOG.md` : entrée 0.8.0 qui décrit le bureau, le kanban, les assets vendorés et leur poids **mesuré** (`du -sh viz/public/vendor/kenney`, valeur reportée), et le nouveau script `vendor-assets.sh`.
+- [ ] `README.md` : la section de la visualisation décrit le bureau et le kanban, avec les agents présentés comme des « repères lumineux provisoires, remplacés par des bonhommes en 0.9.0 », et crédite Kenney (www.kenney.nl, CC0) ; la procédure de mise à jour des assets (`bash scripts/vendor-assets.sh <zip> <zip>`) est documentée côté contributeurs (README ou `CONTRIBUTING.md`).
+- [ ] `skills/gepet-squad-viz/SKILL.md` : au plus une phrase ajoutée au message affiché après l'URL (par exemple « la page montre le bureau de la squad et son kanban ») ; aucune description détaillée, qui reste dans le README ; `tests/skills/viz-skill.test.cjs` au vert.
+- [ ] `grep -rnE "7 stations du pipeline|pipeline à 7 stations" README.md skills/` ne renvoie plus rien.
+- [ ] Tests unitaires : sans objet (documentation, aucun code).
+- [ ] Tests d'intégration : `claude plugin validate .` au vert, et les tests existants de `tests/skills/` au vert.
+- [ ] Lint, build et suite de tests complète au vert (`npm run lint`, `npm test`).
+
+## Notes techniques
+- Sous-projet : `skills`
+- ADR de référence : `docs/architecture/adr/0009-metaphore-bureau-3d.md`, `docs/architecture/adr/0010-assets-3d-cc0-vendores-gltf.md`
+- Fichiers / modules concernés : `.claude-plugin/plugin.json`, `CHANGELOG.md`, `README.md`, `CONTRIBUTING.md`, `skills/gepet-squad-viz/SKILL.md`
+- Contraintes : seule feature de M5 qui touche `plugin.json` et `CHANGELOG.md` ; tout en français.
+
+## Skills / outils recommandés
+- `plugin-authoring` : conventions du plugin.
+
+## Dépendances
+- F-24
+
+## Taille
+S
+
+---
+
+## M6 — Bonshommes vivants
+**Objectif** : les agents deviennent de petits bonhommes Kenney animés : ils entrent par la porte, marchent jusqu'à leur poste, tapent au clavier, montrent leur verdict dans une bulle et repartent ; le chef de projet travaille en permanence à son bureau ; les sphères lumineuses et le bloom disparaissent.
+**Définition de fin** : F-26 à F-31 mergées ; le cycle complet d'un agent (entrée, travail, verdict, sortie, reprise) est visible et couvert par des tests ; aucune marche avec `prefers-reduced-motion` ; `agents.js`, `layout.js` et les addons `postprocessing` sont supprimés ; plugin en 0.9.0.
+
+### F-26 · [viz-web] Trajets purs des bonhommes (`paths.js`)
+## Contexte
+Les bonhommes marchent de la porte à leur poste et inversement, sur des chemins prédéfinis (ADR 0011 : pas de navmesh, les postes sont fixes). Le calcul des trajets doit être pur pour que la machine d'états (`crew.js`) soit testable sans WebGL, et pour gérer les interruptions : un agent peut faire demi-tour au milieu d'une marche.
+
+## Objectif
+`viz/public/js/paths.js` construit une polyligne entre deux points du graphe de points de passage d'`office-layout.js` et l'échantillonne (position et cap) avec une durée plafonnée à 3 s.
+
+## Critères d'acceptance
+- [ ] `pathTo(from, to, waypoints)` renvoie une polyligne qui commence à `from`, finit à `to` et passe par les points de passage du poste concerné ; un `from` en pleine marche est raccordé **sur la polyligne en cours** (projection sur cette polyligne, passée en argument), jamais au point de passage le plus proche au sens euclidien.
+- [ ] `sample(path, t)` renvoie `{ x, z, heading }` pour `t ∈ [0, 1]` ; `t ≤ 0` donne le départ, `t ≥ 1` l'arrivée ; le cap suit la direction du segment courant ; un chemin d'un seul point renvoie ce point sans erreur.
+- [ ] `durationOf(path)` est proportionnelle à la longueur, à vitesse constante (`WALK_SPEED`), et plafonnée à `MAX_WALK_MS = 3000`.
+- [ ] Aucun import de `three`, du DOM, de l'horloge ou du hasard ; mêmes entrées, mêmes sorties.
+- [ ] Tests unitaires (`tests/viz-web/paths.test.mjs`) : extrémités, raccordement depuis une position intermédiaire, `sample` aux bornes et au milieu, cap sur un segment horizontal et vertical, chemin dégénéré, plafond de 3 s sur un long trajet, `assertPure("paths.js")`.
+- [ ] Tests d'intégration : pour chaque poste d'`office-layout.js` (postes 0 à `MAX_DEV_SEATS - 1` et toutes les places de `seatFor`, rangs 0 à `MAX_ZONE_SEATS - 1` de chaque zone), `pathTo(porte, accès)`, `pathTo(accès, porte)`, puis depuis le milieu de chaque trajet porte → accès, `pathTo(milieu, porte)` et `pathTo(milieu, accès)` produisent des chemins dont aucun segment ne traverse une boîte englobante de meuble (le point d'accès est hors de la chaise et du bureau du poste).
+- [ ] Lint, build et suite de tests complète au vert (`npm run lint`, `npm test`).
+
+## Notes techniques
+- Sous-projet : `viz-web`
+- ADR de référence : `docs/architecture/adr/0011-animation-scriptee-des-bonhommes.md`
+- Fichiers / modules concernés : `viz/public/js/paths.js` (nouveau), `tests/viz-web/paths.test.mjs` (nouveau)
+- Contraintes : ne pas modifier `office-layout.js` sauf correction de points de passage justifiée dans la PR ; pas de bibliothèque de pathfinding.
+
+## Skills / outils recommandés
+- `animate` / `apple-design` : vitesse de marche et courbe d'arrivée crédibles.
+
+## Dépendances
+- F-23
+
+## Taille
+S
+
+### F-27 · [viz-web] Machine d'états pure des bonhommes (`crew.js`) : postes, états et clips
+## Contexte
+Le comportement des bonhommes encode le workflow gepet-squad (ADR 0011) : entrer, travailler, rendre un verdict, repartir. Toute cette logique doit vivre dans un module pur, pour que le rendu (`characters.js`) ne décide rien et que chaque cas soit testé sans WebGL. Cette première feature pose la forme de `stepCrew` et le cycle nominal ; les interruptions, la reprise, le geste du chef de projet et le mode réduit arrivent en F-31.
+
+## Objectif
+`viz/public/js/crew.js` calcule, à partir du modèle client, des transitions et de l'instant courant, l'état de chaque bonhomme (poste, modèle, état, clip, position, bulle, dossier) pour le cycle nominal du tableau de l'ADR 0011.
+
+## Critères d'acceptance
+- [ ] `stepCrew(crew, model, transitions, now, reduced)` renvoie un nouvel état sans muter ses entrées ; chaque bonhomme porte `id`, `role`, `seat`, `model` (via `characterFor`), `state` (`entering`, `working`, `reporting`, `leaving`, `gone`, `stale`), `clip`, `position`, `heading`, `bubble` et `folder`.
+- [ ] Attribution des places stable par `agent.id` : dans chaque zone, première place libre (rang de `seatFor`, ou `devSeat` pour les développeurs, avec poste supplémentaire au-delà de 3) ; une station `null` va en salle de réunion ; la place est fixée à l'entrée (un `agent-move` pendant la présence ne déplace pas le bonhomme), conservée tant que l'agent est dans le modèle, libérée quand il en sort ; une place debout (rang ≥ 1) travaille en `interact-right` debout, sans `sit`.
+- [ ] Cycle nominal conforme au tableau de l'ADR 0011 : `entering`/`walk` à l'ajout (trajet `paths.js` de la porte au point d'accès), `working` à l'arrivée en phase `requested`/`running` (`sit` puis `interact-right`, ou `idle` debout pour l'architecte au kanban), `leaving`/`walk` à `finished`, `gone` à la porte, `stale`/`idle` avec bulle « ? » en phase `unknown`.
+- [ ] Phase `reported` : état `reporting` avec `emote-yes` (`PASS`, `LIVRÉ`, `APPROUVÉ`), `emote-no` (`FAIL`, `BLOQUÉ`, `À REVOIR`) ou `holding-both` sinon ; bulle du verdict pendant 4 s, puis retour assis tant que la phase reste `reported`.
+- [ ] Dossier visible sur le poste avec `#N` quand l'agent porte une `issue`, retiré à sa sortie.
+- [ ] Aucun import de `three`, du DOM, de l'horloge ou du hasard : le temps est un argument.
+- [ ] Tests unitaires (`tests/viz-web/crew.test.mjs`) : chaque ligne du cycle nominal, chaque verdict → clip, durée de la bulle, 4 développeurs simultanés (poste supplémentaire), 2 vérificateurs simultanés sur 2 places distinctes, 4 testeurs (le 4e prend la dernière place), architecte à station `null`, `agent-move` sans déplacement, libération et réattribution d'une place, dossier, non-mutation des entrées, `assertPure("crew.js")`.
+- [ ] Tests d'intégration : une fixture `tests/fixtures/journal/cycle-complet.jsonl` (événements v1 valides selon `hooks/lib/schema.cjs` : les 4 types d'agents, des `feature.status` et un `pr.merged`) est créée ; rejouée par `state.js`, elle produit pour chaque agent, via `stepCrew`, la suite d'états attendue, sans état impossible (aucun `working` hors de son poste).
+- [ ] Lint, build et suite de tests complète au vert (`npm run lint`, `npm test`).
+
+## Notes techniques
+- Sous-projet : `viz-web`
+- ADR de référence : `docs/architecture/adr/0011-animation-scriptee-des-bonhommes.md`, `docs/architecture/adr/0008-*`
+- Fichiers / modules concernés : `viz/public/js/crew.js` (nouveau), `tests/viz-web/crew.test.mjs` (nouveau), `tests/fixtures/journal/cycle-complet.jsonl` (nouveau)
+- Contraintes : un agent `finished` reste 10 min dans le modèle (`AGENT_FINISHED_TTL_MS`) : la sortie se déclenche sur `phase → finished`, pas sur `agent-remove` ; pas de XState ni de bibliothèque de tween ; ne pas toucher `state.js` ni `purity.test.mjs`.
+
+## Skills / outils recommandés
+- `engineering:testing-strategy` : couverture des transitions.
+- `animate` / `emil-design-eng` : enchaînement des clips et durée des bulles.
+
+## Dépendances
+- F-26
+
+## Taille
+M
+
+### F-31 · [viz-web] Interruptions, reprise, geste du chef de projet et mode réduit dans `crew.js`
+## Contexte
+Le cycle de vie des agents n'est pas monotone (ADR 0008) : un agent peut finir avant d'atteindre son poste, ou être repris après sa sortie. Le chef de projet doit aussi montrer qu'il agit, sans inventer de comportement : son geste suit des transitions réellement émises par `state.js`. Enfin, `prefers-reduced-motion` supprime toute marche. Cette logique, la plus risquée du milestone, complète `crew.js` (F-27) dans une feature à part.
+
+## Objectif
+`stepCrew` gère les interruptions et la reprise depuis la position courante, le geste du chef de projet et le mode réduit, conformément à l'ADR 0011.
+
+## Critères d'acceptance
+- [ ] Un `finished` reçu pendant `entering` fait demi-tour vers la porte depuis la position courante (raccordement `paths.js` sur la polyligne en cours).
+- [ ] Une reprise (`finished` → `running` ou `reported`) pendant `leaving` ou après `gone` relance `entering` vers le **même** poste s'il est libre, sinon vers la première place libre.
+- [ ] Pendant une marche, au plus une transition en attente par bonhomme : la **dernière** reçue est gardée ; un `reported` ou un `unknown` reçu pendant `entering` est appliqué à l'arrivée, et la bulle dure 4 s à partir de l'arrivée.
+- [ ] Chef de projet : toujours présent à son bureau, assis sans taper (`sit`) au repos ; chaque transition `feature-move`, `feature-status`, ou `release` passant à `merged` lui fait jouer un cycle d'`interact-right` puis revenir à `sit` ; au-delà d'un geste par seconde, les transitions sont ignorées, sans file.
+- [ ] `reduced = true` : aucune marche (passage direct à `working` au poste, ou à `gone`), clips figés sur leur première image ; bulles et dossiers inchangés.
+- [ ] Tests unitaires (`tests/viz-web/crew.test.mjs`) : `finished` pendant `entering`, reprise pendant `leaving` et après `gone`, poste repris puis occupé par un autre, `reported` pendant `entering` (bulle de 4 s depuis l'arrivée), deux changements pendant une marche (seul le dernier compte), chef de projet en `sit` au repos, geste du chef de projet sur chacune des trois transitions et limité à un par seconde (excédent ignoré), mode réduit sur chaque état, `assertPure("crew.js")` toujours vert.
+- [ ] Tests d'intégration : la fixture `cycle-complet.jsonl` complétée d'une reprise d'agent (`finished` puis `running`) produit la suite d'états attendue ; rejouée en mode réduit, aucune position intermédiaire de marche n'apparaît.
+- [ ] Lint, build et suite de tests complète au vert (`npm run lint`, `npm test`).
+
+## Notes techniques
+- Sous-projet : `viz-web`
+- ADR de référence : `docs/architecture/adr/0011-animation-scriptee-des-bonhommes.md`, `docs/architecture/adr/0008-*`
+- Fichiers / modules concernés : `viz/public/js/crew.js`, `tests/viz-web/crew.test.mjs`, `tests/fixtures/journal/cycle-complet.jsonl`
+- Contraintes : le déclencheur du geste du chef de projet ne s'appuie que sur les transitions existantes de `state.js` (aucune modification de `state.js`) ; ne pas toucher `purity.test.mjs`.
+
+## Skills / outils recommandés
+- `engineering:testing-strategy` : cas limites du cycle non monotone.
+- `apple-design` : interruptions crédibles d'une marche.
+
+## Dépendances
+- F-27
+
+## Taille
+M
+
+### F-28 · [viz-web] Rendu des bonhommes (`characters.js`) branché dans la page
+## Contexte
+C'est l'incrément visible de M6 : les états calculés par `crew.js` deviennent de petits bonhommes Kenney animés dans le bureau. `characters.js` ne décide rien (ADR 0011) : il clone les modèles, joue les clips et place bulles et dossiers. Les sphères d'`agents.js` cessent d'être affichées ; leur code est supprimé ensuite (F-29).
+
+## Objectif
+`characters.js` affiche et anime un bonhomme par entrée de `crew.js` (modèle, position, cap, clip, bulle, dossier), et `main.js` l'utilise à la place d'`agents.js`.
+
+## Critères d'acceptance
+- [ ] Chaque modèle de personnage est chargé une seule fois par `GLTFLoader` puis cloné par `SkeletonUtils.clone` ; chaque bonhomme a son `AnimationMixer` ; un changement de clip fait un fondu croisé de 0,2 s (`crossFadeTo`) ; en mode réduit, le clip est figé sur sa première image.
+- [ ] Position et cap suivent exactement les valeurs de `crew.js` à chaque image ; un bonhomme `gone` est retiré de la scène et son mixer libéré.
+- [ ] Bulles de verdict en `CSS2DObject` ; dossier = primitive Three.js (boîte) posée sur le poste, avec une étiquette CSS2D `#N` ; tout texte écrit par `textContent` ; leurs styles vivent dans `viz/public/css/characters.css`, lié dans `index.html`.
+- [ ] Si un modèle ne se charge pas, le bonhomme est remplacé par une capsule colorée selon le type d'agent (`agentColor` de `motion.js`), et `ui.js` affiche un avertissement unique.
+- [ ] Quand un poste supplémentaire (`devSeat(i ≥ 3)`) est occupé, ses meubles sont ajoutés à la scène, puis retirés quand il se libère.
+- [ ] `main.js` importe `characters.js` au lieu d'`agents.js` ; le bloom n'est plus appliqué ; le repli texte et `?mode=texte` sont inchangés.
+- [ ] Tests unitaires : fonctions pures éventuelles (correspondance type → couleur de capsule, choix de l'action à jouer) testées hors WebGL.
+- [ ] Tests d'intégration (`tests/viz-web/characters.test.mjs`) : sous Node avec `three-register.mjs` et un faux chargeur, une suite d'états `crew.js` provoque l'ajout du bonhomme, le jeu des clips attendus dans l'ordre, la création puis le retrait de la bulle et du dossier, et son retrait à `gone` ; un poste supplémentaire occupé ajoute ses meubles ; un chargeur en échec produit une capsule et l'avertissement ; `main.test.mjs` vérifie le nouvel import ; `page.test.mjs` inclut `characters.js` dans la liste des modules qui importent `three`, et sa règle « chaque module qui importe `three` importe `./view-model.js` ou `./layout.js` » est élargie aux modules purs (`view-model`, `office-layout`, `crew`, `assets`, `motion`).
+- [ ] Smoke manuel documenté dans la PR (captures et console) : un agent entre, travaille, rend son verdict et sort ; avec `prefers-reduced-motion`, aucune marche ; aucune erreur console ni CSP ; `?mode=texte` fonctionne.
+- [ ] Lint, build et suite de tests complète au vert (`npm run lint`, `npm test`).
+
+## Notes techniques
+- Sous-projet : `viz-web`
+- ADR de référence : `docs/architecture/adr/0011-animation-scriptee-des-bonhommes.md`, `docs/architecture/adr/0009-metaphore-bureau-3d.md`
+- Fichiers / modules concernés : `viz/public/js/characters.js` (nouveau), `viz/public/css/characters.css` (nouveau), `viz/public/index.html`, `viz/public/js/main.js`, `viz/public/js/ui.js`, `tests/viz-web/characters.test.mjs` (nouveau), `tests/viz-web/main.test.mjs`, `tests/viz-web/page.test.mjs`
+- Contraintes : aucune logique de décision dans `characters.js` ; utiliser les points d'extension de `scene.js` (`addLayer`, `onFrame`, `onUpdate`) ; ne pas supprimer `agents.js` ici (F-29).
+
+## Skills / outils recommandés
+- `animate`, `apple-design`, `emil-design-eng` : fondus entre clips, apparition des bulles.
+- `web-design-guidelines` : `prefers-reduced-motion`, lisibilité des bulles.
+- `run` (navigateur intégré) : smoke manuel.
+
+## Dépendances
+- F-24, F-31
+
+## Taille
+M
+
+### F-29 · [viz-web] Retirer le pipeline lumineux : `agents.js`, `layout.js` et le bloom
+## Contexte
+Après F-28, les sphères lumineuses, le bloom et l'ancien plan du pipeline ne servent plus (ADR 0009). Les garder ferait vivre du code mort, des tests obsolètes et des addons vendorés inutiles dans le plugin. Le retrait a lieu une fois le remplaçant en place, pour que la suite reste verte à chaque étape.
+
+## Objectif
+`agents.js`, `layout.js`, leurs tests et les addons `postprocessing` ne font plus partie du plugin, et plus aucun module n'y fait référence.
+
+## Critères d'acceptance
+- [ ] `viz/public/js/agents.js` et `viz/public/js/layout.js` sont supprimés, ainsi que `tests/viz-web/agents.test.mjs` et `tests/viz-web/layout.test.mjs` ; ce qui reste utile de `layout.js` (s'il en reste) a migré dans `office-layout.js` avec ses tests.
+- [ ] `scripts/vendor-three.sh` ne liste plus `postprocessing/*` ni les shaders du bloom (`CopyShader`, `LuminosityHighPassShader`, `OutputShader`) ; ces fichiers sont retirés de `viz/public/vendor/three/addons/` ; `vendor.test.mjs` vérifie leur absence.
+- [ ] `motion.js` n'exporte plus `BLOOM`, `GLOW_LUMINANCE`, `glowScale`, `luminance`, `AGENT_LOOKS`, `agentLook`, `PULSE_PERIOD_SECONDS`, `pulseOffset`, `pulseScale`, `FADE_SECONDS`, `fadeStep`, `initialOpacity`, `agentVisible`, `INVISIBLE`, `AGENT_FOLLOW_RATE` ni `followPoint`, sauf ceux que `characters.js` importe (listés dans la PR) ; un test vérifie leur absence ; les autres exports restent, avec leurs tests ; `purity.test.mjs` et la règle de `page.test.mjs` ne citent plus `layout.js`.
+- [ ] `setRender` de `scene.js` est retiré s'il n'a plus d'appelant (test `scene` adapté), et plus aucun commentaire de `scene.js` ou `main.js` ne cite `EffectComposer`.
+- [ ] `viz/public/css/agents.css` et son `<link>` dans `index.html` sont supprimés s'ils ne servent plus.
+- [ ] `grep -rnE "(^|[^-])\b(agents|layout)\.js|UnrealBloomPass|EffectComposer" viz/public/js viz/public/index.html viz/public/css tests scripts` ne renvoie rien.
+- [ ] Tests unitaires : suites existantes adaptées (`motion`, `purity`, `vendor`) et vertes.
+- [ ] Tests d'intégration : `tests/viz-web/integration.test.mjs` et `page.test.mjs` au vert ; l'importmap de `index.html` ne référence aucun fichier supprimé.
+- [ ] Lint, build et suite de tests complète au vert (`npm run lint`, `npm test`, `bash -n scripts/vendor-three.sh`).
+
+## Notes techniques
+- Sous-projet : `viz-web`
+- ADR de référence : `docs/architecture/adr/0009-metaphore-bureau-3d.md`, `docs/architecture/adr/0010-assets-3d-cc0-vendores-gltf.md`
+- Fichiers / modules concernés : `viz/public/js/agents.js`, `viz/public/js/layout.js`, `viz/public/js/motion.js`, `viz/public/js/scene.js`, `viz/public/js/main.js`, `viz/public/css/agents.css`, `viz/public/index.html`, `tests/viz-web/page.test.mjs`, `scripts/vendor-three.sh`, `viz/public/vendor/three/addons/postprocessing/**`, `tests/viz-web/*`
+- Contraintes : aucune modification de comportement visible ; `stations-parity` et `state` inchangés.
+
+## Skills / outils recommandés
+- `graphify` (graphe du projet) : retrouver tous les appelants avant suppression.
+
+## Dépendances
+- F-28
+
+## Taille
+S
+
+### F-30 · [skills] Documenter les bonshommes et publier la 0.9.0
+## Contexte
+Avec M6, la vue montre enfin de petits bonhommes qui travaillent : c'est le besoin initial de l'utilisateur. Ce changement de comportement doit être documenté et versionné (`CLAUDE.md`), et le CHANGELOG doit signaler la disparition du bloom et des sphères.
+
+## Objectif
+README, skill `gepet-squad-viz` et CHANGELOG décrivent les bonhommes et leur cycle, et le plugin passe en 0.9.0.
+
+## Critères d'acceptance
+- [ ] `.claude-plugin/plugin.json` : `version` passe à `0.9.0`.
+- [ ] `CHANGELOG.md` : entrée 0.9.0 qui décrit les bonhommes (entrée, travail, verdict, sortie, reprise), le chef de projet permanent, le comportement avec `prefers-reduced-motion`, la capsule de remplacement, et le retrait du bloom et des addons `postprocessing`.
+- [ ] `grep -rniE "sphères? lumineuses?|agents? lumineux|repères? lumineux" README.md skills/` ne renvoie plus rien.
+- [ ] `skills/gepet-squad-viz/SKILL.md` : au plus une phrase dans le message affiché après l'URL ; `tests/skills/viz-skill.test.cjs` au vert.
+- [ ] `README.md` décrit ce que fait chaque bonhomme selon le rôle et la phase de l'agent (tableau rôle → zone, et état → geste).
+- [ ] Tests unitaires : sans objet (documentation, aucun code).
+- [ ] Tests d'intégration : `claude plugin validate .` au vert, et les tests de `tests/skills/` au vert.
+- [ ] Lint, build et suite de tests complète au vert (`npm run lint`, `npm test`).
+
+## Notes techniques
+- Sous-projet : `skills`
+- ADR de référence : `docs/architecture/adr/0011-animation-scriptee-des-bonhommes.md`
+- Fichiers / modules concernés : `.claude-plugin/plugin.json`, `CHANGELOG.md`, `README.md`, `skills/gepet-squad-viz/SKILL.md`
+- Contraintes : seule feature de M6 qui touche `plugin.json` et `CHANGELOG.md` ; tout en français.
+
+## Skills / outils recommandés
+- `plugin-authoring` : conventions du plugin.
+
+## Dépendances
+- F-29
+
+## Taille
+S
+
+---
+
 ## Correspondance F-xx → issues GitHub
 | Feature | Issue |
 |---|---|
@@ -655,3 +1100,16 @@ S
 | F-16 | #44 |
 | F-17 | #45 |
 | F-18 | #46 |
+| F-19 | #52 |
+| F-20 | #53 |
+| F-21 | #54 |
+| F-22 | #55 |
+| F-23 | #56 |
+| F-24 | #57 |
+| F-25 | #58 |
+| F-26 | #59 |
+| F-27 | #60 |
+| F-28 | #62 |
+| F-29 | #63 |
+| F-30 | #64 |
+| F-31 | #61 |

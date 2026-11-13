@@ -1,15 +1,16 @@
-// Tests de viz/public/js/agents.js et du branchement de motion.js dans scene.js, avec un moteur de rendu factice (pas de
-// WebGL) : le graphe Three.js est réel (scène, InstancedMesh, entités, CSS2DObject, EffectComposer et ses passes), seul
-// le rendu final est simulé. Les transitions viennent de `state.js` (`apply`), pas de données écrites à la main.
+// Tests de viz/public/js/agents.js (agents lumineux placés par zone, bloom) avec un moteur de rendu factice (pas de
+// WebGL) : le graphe Three.js est réel (scène, InstancedMesh, entités, EffectComposer et ses passes), seul
+// le rendu final est simulé.
 import "./three-register.mjs";
 import { test, describe, before } from "node:test";
 import assert from "node:assert/strict";
 
-import { apply, init } from "../../viz/public/js/state.js";
-import { escaladeBox, boxContains, layoutAgents, layoutFeatures } from "../../viz/public/js/layout.js";
-import { AGENT_COLORS, BLOOM, easeInOutCubic, FADE_SECONDS, GLOW_LUMINANCE, PULSE_PERIOD_SECONDS, agentColor, agentLook, glowScale, moveDuration, retryBadgeText } from "../../viz/public/js/motion.js";
-import { fakeContainer, fakeDocument, fakeElement, fakePage, fakeRenderer, fakeWindow } from "./dom-fakes.mjs";
-import { agent, evt, feature, stateOf } from "./support.mjs";
+import { init } from "../../viz/public/js/state.js";
+import { devSeat, seatFor } from "../../viz/public/js/office-layout.js";
+import { layoutAgents } from "../../viz/public/js/layout.js";
+import { AGENT_COLORS, BLOOM, FADE_SECONDS, GLOW_LUMINANCE, PULSE_PERIOD_SECONDS, agentColor, agentLook, glowScale } from "../../viz/public/js/motion.js";
+import { fakeContainer, fakeLoader, fakePage, fakeRenderer, fakeWindow } from "./dom-fakes.mjs";
+import { agent, at, feature, stateOf } from "./support.mjs";
 
 let THREE;
 let createScene;
@@ -24,16 +25,6 @@ before(async () => {
   ({ loadAgents, boot } = await import("../../viz/public/js/main.js"));
 });
 
-// Document dont les éléments se laissent retirer comme dans un navigateur : le `removed` de CSS2DObject appelle
-// `element instanceof element.ownerDocument.defaultView.Element`.
-function badgeDocument() {
-  const view = { Element: { [Symbol.hasInstance]: () => true } };
-  return {
-    createElement(tag) {
-      return fakeElement(tag, { ownerDocument: { defaultView: view, addEventListener() {}, removeEventListener() {} } });
-    },
-  };
-}
 
 // Le vrai compositeur (passes réelles), dont le dernier maillon GL est remplacé : sans WebGL, `render` ne peut pas tourner.
 const stubbed = (sceneApi) => {
@@ -42,14 +33,14 @@ const stubbed = (sceneApi) => {
   return composer;
 };
 
-function setup({ reduced = false, createComposer = null, document: doc = badgeDocument(), warn = () => {} } = {}) {
+function setup({ reduced = false, createComposer = null, warn = () => {} } = {}) {
   const container = fakeContainer(800, 600);
   const renderer = fakeRenderer({ width: 800, height: 600 });
   const win = fakeWindow(800, 600);
   win.media.reduced = reduced;
-  const api = createScene({ container, renderer, window: win });
+  const api = createScene({ container, renderer, window: win, loadModel: fakeLoader(THREE) });
   const warnings = [];
-  const agents = createAgents(api, { document: doc, createComposer, warn: (message) => { warnings.push(message); warn(message); } });
+  const agents = createAgents(api, { createComposer, warn: (message) => { warnings.push(message); warn(message); } });
   let t = 1000;
   api.frame(t);
   // Fait avancer la boucle de `seconds` secondes à 60 images par seconde.
@@ -62,120 +53,7 @@ function setup({ reduced = false, createComposer = null, document: doc = badgeDo
 const modelOf = (features, agentList = []) => init(stateOf({ features, agents: agentList }));
 const entityOf = (agents, id) => agents.entities.get(id);
 const color = (entity) => entity.material.color.getHex();
-const mesh = (api) => api.scene.children.find((o) => o.isInstancedMesh);
-const featureX = (api, index = 0) => new THREE.Vector3().setFromMatrixPosition(mesh(api).getMatrixAt(index, new THREE.Matrix4())).x;
-const featureAt = (api, index = 0) => new THREE.Vector3().setFromMatrixPosition(mesh(api).getMatrixAt(index, new THREE.Matrix4()));
 const near = (a, b, eps = 1e-3, msg) => assert.ok(Math.abs(a - b) <= eps, msg ?? `${a} != ${b}`);
-
-describe("déplacement des features : interpolation décidée par motion.js", () => {
-  const start = modelOf([feature(7, "in-progress")]);
-  const moved = apply(start, evt("feature.status", 1, { issue: 7, status: "in-review" }));
-
-  test("la transition de state.js est une feature-move dev -> verification", () => {
-    assert.deepEqual(moved.transitions.filter((t) => t.kind === "feature-move"), [{ kind: "feature-move", id: 7, from: "dev", to: "verification" }]);
-  });
-
-  test("la feature part de sa position, passe par le milieu à mi-durée et arrive pile à la cible, à l'heure dite", () => {
-    const { api, run } = setup();
-    api.update(start);
-    run(0.2);
-    const from = layoutFeatures(start).get(7);
-    const to = layoutFeatures(moved.model).get(7);
-    near(featureX(api), from.x, 1e-3);
-
-    api.update(moved.model, moved.transitions);
-    const duration = moveDuration(from, to, "move");
-    assert.ok(duration > 0.7 && duration < 1.8, "durée proportionnelle à la distance, bornée");
-
-    run(0.1);
-    const early = featureX(api);
-    assert.ok(early > from.x && early < from.x + 0.1 * (to.x - from.x), `départ doux : ${early}`);
-
-    // Image par image (60 Hz) : la position affichée suit exactement la courbe de motion.js au temps écoulé.
-    const frames = Math.round((duration / 2 - 0.1) * 60);
-    run(duration / 2 - 0.1);
-    const elapsed = (Math.round(0.1 * 60) + frames) / 60;
-    near(featureX(api), from.x + (to.x - from.x) * easeInOutCubic(elapsed / duration), 0.01, "position = courbe au temps écoulé");
-    near(featureX(api), (from.x + to.x) / 2, 1, "à peu près à mi-chemin à mi-durée");
-
-    run(duration / 2 - 0.1);
-    assert.ok(featureX(api) < to.x, "pas encore arrivée juste avant la fin");
-    run(0.3);
-    const end = featureAt(api);
-    near(end.x, to.x, 1e-4);
-    near(end.y, to.y, 1e-4);
-    near(end.z, to.z, 1e-4);
-  });
-
-  test("le mouvement est continu : jamais plus d'un quart du trajet d'une image à l'autre", () => {
-    const { api, run } = setup();
-    api.update(start);
-    run(0.1);
-    const from = layoutFeatures(start).get(7);
-    const to = layoutFeatures(moved.model).get(7);
-    api.update(moved.model, moved.transitions);
-    let previous = featureX(api);
-    for (let i = 0; i < 120; i++) {
-      run(1 / 60);
-      const x = featureX(api);
-      assert.ok(x >= previous - 1e-9, "ne recule jamais");
-      assert.ok(x - previous < (to.x - from.x) / 4, `saut de ${x - previous}`);
-      previous = x;
-    }
-  });
-
-  test("prefers-reduced-motion : la feature est à sa cible dès l'image suivante, sans glissement", () => {
-    const { api, run } = setup({ reduced: true });
-    api.update(start);
-    run(0.1);
-    api.update(moved.model, moved.transitions);
-    run(1 / 60);
-    near(featureX(api), layoutFeatures(moved.model).get(7).x, 1e-4);
-  });
-
-  test("la préférence est relue à chaque image : activée en plein déplacement, la feature se pose aussitôt", () => {
-    const { api, run, win } = setup();
-    api.update(start);
-    run(0.1);
-    api.update(moved.model, moved.transitions);
-    run(0.2);
-    const to = layoutFeatures(moved.model).get(7);
-    assert.ok(featureX(api) < to.x - 1);
-    win.media.reduced = true;
-    run(1 / 60);
-    near(featureX(api), to.x, 1e-4);
-  });
-
-  test("une feature bloquée glisse dans la zone d'escalade rouge accolée à sa station", () => {
-    const { api, run } = setup();
-    api.update(start);
-    run(0.1);
-    const blocked = apply(start, evt("feature.status", 1, { issue: 7, status: "blocked" }));
-    assert.deepEqual(blocked.transitions.filter((t) => t.kind === "feature-move"), [{ kind: "feature-move", id: 7, from: "dev", to: "escalade" }]);
-    api.update(blocked.model, blocked.transitions);
-    run(0.2);
-    const zone = escaladeBox("dev");
-    assert.equal(boxContains(zone, featureAt(api)), false, "encore en route");
-    run(2);
-    assert.equal(boxContains(zone, featureAt(api)), true, "arrivée dans la zone d'escalade de la station dev");
-    assert.ok(featureAt(api).z < -8);
-  });
-
-  test("une cible modifiée en cours de route : la feature repart de là où elle est, sans téléportation", () => {
-    const { api, run } = setup();
-    api.update(start);
-    run(0.1);
-    api.update(moved.model, moved.transitions);
-    run(0.4);
-    const inFlight = featureX(api);
-    const back = apply(moved.model, evt("feature.status", 2, { issue: 7, status: "in-test" }));
-    api.update(back.model, back.transitions);
-    run(1 / 60);
-    assert.ok(Math.abs(featureX(api) - inFlight) < 1, `repart de la position affichée : ${inFlight} -> ${featureX(api)}`);
-    run(3);
-    near(featureX(api), layoutFeatures(back.model).get(7).x, 1e-4);
-  });
-});
 
 describe("rendu avec bloom : EffectComposer + RenderPass + UnrealBloomPass + OutputPass", () => {
   test("le compositeur par défaut enchaîne RenderPass, UnrealBloomPass puis OutputPass, avec les réglages de motion.js", () => {
@@ -397,113 +275,71 @@ describe("agents : une entité lumineuse par agent", () => {
     assert.equal(agents.entities.size, 1);
   });
 
-  test("les agents sont placés au-dessus de leur feature, et la suivent pendant son déplacement", () => {
-    const start = modelOf([feature(7, "in-progress")], [agent("dev-7", { issue: 7, phase: "running" })]);
-    const moved = apply(start, evt("feature.status", 1, { issue: 7, status: "in-review" }));
-    const { api, agents, run } = setup();
-    api.update(start);
-    run(0.3);
-    const home = layoutAgents(start, layoutFeatures(start)).get("dev-7");
-    const entity = entityOf(agents, "dev-7");
-    near(entity.mesh.position.x, home.x, 1e-6);
-    near(entity.mesh.position.y, home.y, 1e-6);
-    near(entity.mesh.position.z, home.z, 1e-6);
-
-    api.update(moved.model, moved.transitions);
-    const target = layoutAgents(moved.model, layoutFeatures(moved.model)).get("dev-7");
-    run(0.5);
-    const x = entity.mesh.position.x;
-    assert.ok(x > home.x && x < target.x, "en route avec sa feature");
-    assert.ok(x <= featureX(api) + 1e-9, "derrière ou sur la feature, jamais devant");
-    run(3);
-    near(entity.mesh.position.x, target.x, 1e-3);
-    near(entity.mesh.position.y, target.y, 1e-3);
-  });
-
-  test("un agent sans feature survole sa station ; prefers-reduced-motion : il y est tout de suite", () => {
-    const model = modelOf([], [agent("v", { type: "verificateur", station: "verification" })]);
+  test("chaque agent est dans la zone du bureau de sa station, à la place d'office-layout.js", () => {
+    const model = modelOf([], [
+      agent("v", { type: "verificateur", station: "verification" }),
+      agent("t", { type: "testeur", station: "test" }),
+      agent("d0", { station: "dev", since: at(0) }),
+      agent("d1", { station: "dev", since: at(1) }),
+    ]);
     const { api, agents, run } = setup({ reduced: true });
     api.update(model);
     run(1 / 60);
-    const expected = layoutAgents(model).get("v");
-    const p = entityOf(agents, "v").mesh.position;
-    assert.deepEqual([p.x, p.y, p.z], [expected.x, expected.y, expected.z]);
+    const position = (id) => entityOf(agents, id).mesh.position;
+    const expectSeat = (id, seat) => {
+      const p = position(id);
+      assert.deepEqual([p.x, p.z], [seat.x, seat.z], id);
+    };
+    expectSeat("v", seatFor("verification", "verificateur", 0));
+    expectSeat("t", seatFor("test", "testeur", 0));
+    expectSeat("d0", devSeat(0));
+    expectSeat("d1", devSeat(1));
+    assert.notDeepEqual([position("d0").x, position("d0").z], [position("d1").x, position("d1").z], "deux développeurs, deux postes");
   });
-});
 
-describe("badges de retry (CSS2DObject, textContent)", () => {
-  const badgeObjects = (agents) => agents.group.children.filter((o) => o.isCSS2DObject);
-
-  test("une feature avec retry >= 1 porte un badge visible au-dessus d'elle ; sans retry, aucun", () => {
-    const { api, agents, run } = setup();
-    api.update(modelOf([feature(1, "in-progress", { retry: 2 }), feature(2, "in-progress", { retry: 0 }), feature(3, "in-review", { retry: 1 })]));
+  test("les positions ne dépendent plus d'une feature : le même agent est au même endroit avec ou sans sa feature", () => {
+    const withFeature = modelOf([feature(7, "in-progress")], [agent("dev-7", { issue: 7 })]);
+    const without = modelOf([], [agent("dev-7", { issue: 7 })]);
+    assert.deepEqual(layoutAgents(withFeature).get("dev-7"), layoutAgents(without).get("dev-7"));
+    const { api, agents, run } = setup({ reduced: true });
+    api.update(withFeature);
     run(1 / 60);
-    assert.deepEqual([...agents.badges.keys()], [1, 3]);
-    const badge = agents.badges.get(1);
-    assert.equal(badge.element.textContent, retryBadgeText(2));
-    assert.equal(agents.badges.get(3).element.textContent, "Retry 1");
-    assert.equal(badge.element.className, "badge badge-retry");
-    assert.equal(badge.visible, true);
-    const p = api.positionOf(1);
-    assert.deepEqual([badge.position.x, badge.position.z], [p.x, p.z]);
-    assert.ok(badge.position.y > p.y, "au-dessus de la feature");
-    assert.equal(badgeObjects(agents).length, 2);
+    const home = layoutAgents(withFeature).get("dev-7");
+    const p = entityOf(agents, "dev-7").mesh.position;
+    assert.deepEqual([p.x, p.y, p.z], [home.x, home.y, home.z]);
   });
 
-  test("le badge suit sa feature pendant son déplacement", () => {
-    const start = modelOf([feature(7, "in-progress", { retry: 1 })]);
-    const moved = apply(start, evt("feature.status", 1, { issue: 7, status: "in-review" }));
+  test("un agent qui change de station glisse vers sa nouvelle zone, sans téléportation", () => {
     const { api, agents, run } = setup();
-    api.update(start);
-    run(0.2);
-    api.update(moved.model, moved.transitions);
-    run(0.5);
-    const badge = agents.badges.get(7);
-    const p = api.positionOf(7);
-    near(badge.position.x, p.x, 1e-9);
-    assert.ok(badge.position.x > layoutFeatures(start).get(7).x, "il a quitté la station de départ");
+    api.update(modelOf([], [agent("a", { type: "verificateur", station: "verification" })]));
+    run(0.3);
+    const from = entityOf(agents, "a").mesh.position.clone();
+    const next = modelOf([], [agent("a", { type: "testeur", station: "test" })]);
+    api.update(next);
+    run(0.1);
+    const target = layoutAgents(next).get("a");
+    const mid = entityOf(agents, "a").mesh.position;
+    assert.ok(Math.abs(mid.z - from.z) > 1e-3 && Math.abs(mid.z - target.z) > 1e-3, "en route");
+    run(3);
+    assert.ok(Math.abs(entityOf(agents, "a").mesh.position.z - target.z) < 1e-3);
   });
 
-  test("le compteur change : le texte est mis à jour sur le même badge ; retry retombé à 0 : le badge est retiré du DOM", () => {
+  test("les badges de retry ne sont plus portés par agents.js : aucun objet CSS2D dans la couche", () => {
     const { api, agents, run } = setup();
-    api.update(modelOf([feature(1, "in-progress", { retry: 1 })]));
+    api.update(modelOf([feature(1, "in-progress", { retry: 2 })], [agent("a")]));
     run(1 / 60);
-    const badge = agents.badges.get(1);
-    api.update(modelOf([feature(1, "in-progress", { retry: 3 })]));
-    assert.equal(agents.badges.get(1), badge, "même objet");
-    assert.equal(badge.element.textContent, "Retry 3");
-    api.update(modelOf([feature(1, "in-progress", { retry: 0 })]));
-    assert.equal(agents.badges.size, 0);
-    assert.equal(agents.group.children.includes(badge), false);
-    assert.equal(badge.element.removed, true, "l'élément quitte la couche d'étiquettes");
-  });
-
-  test("une feature qui n'est plus dessinée n'affiche plus son badge", () => {
-    const { api, agents, run } = setup();
-    api.update(modelOf([feature(1, "in-progress", { retry: 1 })]));
-    run(1 / 60);
-    api.update(modelOf([feature(1, "in-progress", { retry: 1, station: "inconnue" })]));
-    api.update(modelOf([]));
-    assert.equal(agents.badges.size, 0);
-  });
-
-  test("le badge ne passe jamais par innerHTML : un titre piégé reste hors du badge", () => {
-    // fakeDocument() lève à toute écriture dans innerHTML / outerHTML.
-    const { api, agents, run } = setup({ document: Object.assign(fakeDocument(), {}) });
-    api.update(modelOf([feature(1, "in-progress", { retry: 1, title: "<img src=x onerror=alert(1)>" })]));
-    run(1 / 60);
-    assert.equal(agents.badges.get(1).element.textContent, "Retry 1");
+    assert.equal(agents.badges, undefined);
+    assert.equal(agents.group.children.filter((o) => o.isCSS2DObject).length, 0);
   });
 });
 
 describe("branchement dans la scène et cycle de vie", () => {
   test("une couche créée après la première mise à jour reprend le modèle courant", () => {
     const container = fakeContainer();
-    const api = createScene({ container, renderer: fakeRenderer(), window: fakeWindow() });
+    const api = createScene({ container, renderer: fakeRenderer(), window: fakeWindow(), loadModel: fakeLoader(THREE) });
     api.update(modelOf([feature(1, "in-progress", { retry: 1 })], [agent("late", { phase: "running" })]));
-    const agents = createAgents(api, { document: badgeDocument(), createComposer: null });
+    const agents = createAgents(api, { createComposer: null });
     assert.deepEqual([...agents.entities.keys()], ["late"]);
-    assert.deepEqual([...agents.badges.keys()], [1]);
   });
 
   test("dispose retire la couche, les rappels et le rendu par compositeur, et libère les ressources", () => {
@@ -528,7 +364,6 @@ describe("branchement dans la scène et cycle de vie", () => {
 
     assert.equal(api.scene.children.includes(group), false);
     assert.equal(agents.entities.size, 0);
-    assert.equal(agents.badges.size, 0);
     assert.equal(disposed, 1);
     assert.equal(agents.composer, null);
     assert.ok(composer.renderTarget1);
@@ -587,7 +422,7 @@ describe("branchement dans la scène et cycle de vie", () => {
 
 describe("main.js : le crochet onScene et le chargement des agents", () => {
   test("loadAgents branche les agents sur la scène (module chargé à la demande)", async () => {
-    const api = createScene({ container: fakeContainer(), renderer: fakeRenderer(), window: fakeWindow() });
+    const api = createScene({ container: fakeContainer(), renderer: fakeRenderer(), window: fakeWindow(), loadModel: fakeLoader(THREE) });
     const warnings = [];
     const win = { console: { warn: (m) => warnings.push(m) } };
     const before = new Set(api.scene.children);

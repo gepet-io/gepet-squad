@@ -164,6 +164,7 @@ export async function boot(doc = globalThis.document, win = globalThis.window, {
     repo: doc.getElementById("depot"),
     scene: doc.getElementById("scene"),
     legend: doc.getElementById("legende"),
+    warning: doc.getElementById("avertissement"),
     fallback: doc.getElementById("repli"),
   };
   ui.renderLegend(els.legend, doc);
@@ -206,7 +207,11 @@ export async function boot(doc = globalThis.document, win = globalThis.window, {
 
   try {
     const [sceneModule, labelsModule] = await Promise.all([import("./scene.js"), import("./labels.js")]);
-    scene = sceneModule.createScene({ container: els.scene, window: win });
+    scene = sceneModule.createScene({
+      container: els.scene,
+      window: win,
+      onAssetsFailed: (count) => ui.showAssetsWarning(els.warning, count),
+    });
     labelsModule.createLabels(scene, { container: els.scene, document: doc });
     await onScene?.(scene);
     if (latest !== null) scene.update(latest, []);

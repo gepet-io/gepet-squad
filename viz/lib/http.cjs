@@ -22,6 +22,7 @@ const MIME_TYPES = Object.freeze({
   ".json": "application/json; charset=utf-8",
   ".svg": "image/svg+xml",
   ".png": "image/png",
+  ".glb": "model/gltf-binary", // modèles 3D (ADR 0010) ; ni .gltf ni .bin
 });
 
 const ALLOWED_METHODS = Object.freeze(["GET", "HEAD"]);

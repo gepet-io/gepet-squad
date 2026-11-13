@@ -35,6 +35,9 @@ const EXPECTED_FILES = [
   "build/three.core.js",
   "build/three.module.js",
   "addons/controls/OrbitControls.js",
+  "addons/loaders/GLTFLoader.js",
+  "addons/utils/SkeletonUtils.js",
+  "addons/utils/BufferGeometryUtils.js",
   "addons/renderers/CSS2DRenderer.js",
   "addons/postprocessing/EffectComposer.js",
   "addons/postprocessing/RenderPass.js",
@@ -52,6 +55,8 @@ const EXPECTED_FILES = [
 const ENTRY_POINTS = [
   "build/three.module.js",
   "addons/controls/OrbitControls.js",
+  "addons/loaders/GLTFLoader.js",
+  "addons/utils/SkeletonUtils.js",
   "addons/renderers/CSS2DRenderer.js",
   "addons/postprocessing/EffectComposer.js",
   "addons/postprocessing/RenderPass.js",
@@ -295,6 +300,60 @@ describe("service par viz-server et script de vendoring", () => {
     assert.match(script, /npm pack "three@\$VERSION"/);
     for (const file of EXPECTED_FILES.filter((f) => f.startsWith("addons/"))) {
       assert.ok(script.includes(file.slice("addons/".length)), `${file} absent de la liste ADDONS du script`);
+    }
+  });
+});
+
+describe("addons de chargement glTF (ADR 0010)", () => {
+  const GLTF_ADDONS = [
+    "addons/loaders/GLTFLoader.js",
+    "addons/utils/SkeletonUtils.js",
+    "addons/utils/BufferGeometryUtils.js",
+  ];
+
+  for (const file of GLTF_ADDONS) {
+    test(`${file} : chaque import pointe vers un fichier vendoré`, () => {
+      const full = path.join(VENDOR_DIR, file);
+      const specifiers = importSpecifiers(fs.readFileSync(full, "utf8"));
+      assert.ok(specifiers.includes("three"), "l'addon doit importer three");
+      for (const specifier of specifiers) {
+        const resolved = resolveSpecifier(specifier, full, PUBLIC_DIR, IMPORTMAP);
+        assert.ok("file" in resolved, `${file} : ${resolved.error}`);
+        assert.ok(resolved.file.startsWith(VENDOR_DIR + path.sep), `${specifier} sort de vendor/three`);
+      }
+    });
+
+    test(`${file} : licence MIT conservée (en-tête éventuel du fichier non retiré, LICENSE du paquet présent)`, () => {
+      const source = fs.readFileSync(path.join(VENDOR_DIR, file), "utf8");
+      // Three.js 0.187.0 ne met pas d'en-tête de licence dans ces addons : la licence MIT est portée par vendor/three/LICENSE.
+      // Si un en-tête de commentaire est présent en tête de fichier, il doit rester celui de Three.js (MIT).
+      const header = /^\s*\/\*[\s\S]*?\*\//.exec(source);
+      if (header !== null && /licen[sc]e|copyright/i.test(header[0])) assert.match(header[0], /MIT/);
+      assert.match(fs.readFileSync(path.join(VENDOR_DIR, "LICENSE"), "utf8"), /^The MIT License/);
+    });
+  }
+
+  test("GLTFLoader importe SkeletonUtils et BufferGeometryUtils, tous deux vendorés", () => {
+    const full = path.join(VENDOR_DIR, "addons/loaders/GLTFLoader.js");
+    const specifiers = importSpecifiers(fs.readFileSync(full, "utf8"));
+    assert.ok(specifiers.includes("../utils/BufferGeometryUtils.js"));
+    assert.ok(specifiers.includes("../utils/SkeletonUtils.js"));
+  });
+
+  test("les imports de la page se résolvent : three/addons/loaders/GLTFLoader.js et three/addons/utils/SkeletonUtils.js", () => {
+    const page = path.join(PUBLIC_DIR, "index.html");
+    for (const [spec, rel] of [
+      ["three/addons/loaders/GLTFLoader.js", "addons/loaders/GLTFLoader.js"],
+      ["three/addons/utils/SkeletonUtils.js", "addons/utils/SkeletonUtils.js"],
+    ]) {
+      assert.deepEqual(resolveSpecifier(spec, page, PUBLIC_DIR, IMPORTMAP), { file: path.join(VENDOR_DIR, rel) });
+    }
+  });
+
+  test("three reste en 0.187.0 et les addons existants sont toujours présents", () => {
+    assert.equal(fs.readFileSync(path.join(VENDOR_DIR, "VERSION"), "utf8"), `0.187.0${"\n"}`);
+    for (const file of ["addons/controls/OrbitControls.js", "addons/postprocessing/EffectComposer.js"]) {
+      assert.ok(fs.existsSync(path.join(VENDOR_DIR, file)), `${file} doit rester vendoré`);
     }
   });
 });

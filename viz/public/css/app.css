@@ -65,6 +65,15 @@ body {
   color: var(--muted);
 }
 
+.panel .avertissement {
+  max-width: 240px;
+  color: var(--warn);
+}
+
+.avertissement[hidden] {
+  display: none;
+}
+
 .connexion {
   display: flex;
   align-items: center;
@@ -146,6 +155,20 @@ body {
   font-size: 15px;
   font-weight: 600;
   letter-spacing: 0.03em;
+}
+
+.label-zone {
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
+.label-counter {
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(13, 17, 23, 0.85);
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .label-escalade {

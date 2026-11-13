@@ -1,5 +1,5 @@
 # 0002 — Stack sans build : Node standard, Three.js vendoré, SSE
-Statut : Acceptée — Date : 2026-10-30
+Statut : Acceptée — Date : 2026-10-30 — **Amendée** le 2026-11-13 par l'[ADR 0010](0010-assets-3d-cc0-vendores-gltf.md) : la liste des addons vendorés devient `controls/OrbitControls.js`, `renderers/CSS2DRenderer.js`, `loaders/GLTFLoader.js`, `utils/SkeletonUtils.js` et `utils/BufferGeometryUtils.js`. Les addons `postprocessing/*` et les shaders du bloom sont remplacés par cette liste. Le reste de cet ADR est inchangé.
 
 ## Contexte
 

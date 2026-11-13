@@ -1,11 +1,12 @@
 // Tests unitaires de viz/public/js/layout.js : stations, zone d'escalade, files de features (100 features dans une
-// station), positions des agents, déterminisme. Le module est pur : aucun DOM, aucun WebGL.
+// station), positions des agents (dérivées d'office-layout.js), déterminisme. Le module est pur : aucun DOM, aucun WebGL.
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 
 import { init, STATIONS } from "../../viz/public/js/state.js";
 import {
   LAYOUT,
+  AGENT_HEIGHT,
   stationBox,
   stationBoxes,
   escaladeBox,
@@ -15,6 +16,7 @@ import {
   layoutAgents,
   layoutScene,
 } from "../../viz/public/js/layout.js";
+import { MAX_DEV_SEATS, OFFICE, devSeat, seatFor } from "../../viz/public/js/office-layout.js";
 import { at, feature, agent, stateOf, M1, M2 } from "./support.mjs";
 
 const range = (n, start = 1) => Array.from({ length: n }, (_, i) => start + i);
@@ -198,81 +200,78 @@ describe("files de features", () => {
   });
 });
 
-describe("agents", () => {
-  test("un agent est placé au-dessus de la feature qu'il traite", () => {
-    const model = modelWith([feature(5, "in-progress"), feature(6, "in-progress")], [agent("a", { issue: 6 })]);
-    const features = layoutFeatures(model);
-    const p = layoutAgents(model, features).get("a");
-    const f = features.get(6);
-    assert.deepEqual([p.x, p.z, p.anchor, p.feature], [f.x, f.z, "feature", 6]);
-    assert.equal(p.y, f.y + LAYOUT.agentOverFeature);
+describe("agents : positions dérivées d'office-layout.js", () => {
+  const xz = (p) => [p.x, p.z];
+
+  test("un agent est à la place de sa station, à hauteur de tête, que sa feature soit affichée ou non", () => {
+    const withFeature = modelWith([feature(6, "in-review")], [agent("v", { issue: 6, type: "verificateur", station: "verification" })]);
+    const without = modelWith([], [agent("v", { issue: 6, type: "verificateur", station: "verification" })]);
+    const p = layoutAgents(withFeature).get("v");
+    const seat = seatFor("verification", "verificateur", 0);
+    assert.deepEqual(xz(p), xz(seat));
+    assert.equal(p.y, AGENT_HEIGHT);
+    assert.deepEqual([p.anchor, p.seat, p.station], ["seat", seat.key, "verification"]);
+    assert.deepEqual(layoutAgents(without).get("v"), p, "indépendant des features");
   });
 
-  test("plusieurs agents sur la même feature sont empilés", () => {
-    const model = modelWith([feature(5, "in-review")], [agent("a", { issue: 5, since: at(1) }), agent("b", { issue: 5, since: at(2), type: "verificateur", station: "verification" })]);
-    const out = layoutAgents(model);
-    assert.ok(out.get("b").y > out.get("a").y);
-    assert.equal(out.get("b").y - out.get("a").y, LAYOUT.agentStack);
-    assert.equal(out.get("a").x, out.get("b").x);
-  });
-
-  test("l'agent d'une feature en zone d'escalade la survole", () => {
-    const model = modelWith([feature(5, "blocked", { station: "test" })], [agent("a", { issue: 5, type: "architecte", mode: "ESCALADE", station: "escalade" })]);
-    const features = layoutFeatures(model);
-    const p = layoutAgents(model, features).get("a");
-    assert.equal(p.anchor, "feature");
-    assert.equal(p.z, features.get(5).z);
-    assert.ok(p.z < 0);
-  });
-
-  test("sans feature affichée, l'agent survole sa station, répartis sans sortir de la largeur de la boîte", () => {
-    const box = stationBox("verification");
-    for (const count of [1, 3, 20]) {
-      const agents = range(count).map((n) => agent(`v${n}`, { station: "verification", type: "verificateur", since: at(n) }));
-      const out = layoutAgents(modelWith([], agents));
-      const points = [...out.values()];
-      assert.equal(new Set(points.map(key)).size, count, `${count} agents distincts`);
-      for (const p of points) {
-        assert.equal(p.anchor, "station");
-        assert.ok(p.y > box.height, "au-dessus de la boîte");
-        assert.ok(Math.abs(p.x - box.x) <= box.width / 2);
-        assert.equal(p.z, box.z);
-      }
+  test("chaque station du bureau place ses agents dans sa zone", () => {
+    const cases = [
+      ["cadrage", "architecte", "cadrage"],
+      ["roadmap", "architecte", "roadmap"],
+      ["verification", "verificateur", "verification"],
+      ["test", "testeur", "test"],
+      ["escalade", "architecte", "escalade"],
+    ];
+    for (const [station, type, zone] of cases) {
+      const p = layoutAgents(modelWith([], [agent("a", { station, type })])).get("a");
+      const area = OFFICE.zones[zone];
+      assert.ok(Math.abs(p.x - area.x) <= area.width / 2 + 3 && Math.abs(p.z - area.z) <= area.depth / 2 + 3, `${station} : (${p.x}, ${p.z}) loin de la zone`);
+      assert.equal(p.anchor, "seat", station);
     }
   });
 
-  test("un agent dont l'issue n'est pas affichée retombe sur sa station", () => {
-    const out = layoutAgents(modelWith([], [agent("a", { issue: 99, station: "test", type: "testeur" })]));
-    assert.equal(out.get("a").anchor, "station");
-    assert.equal(out.get("a").x, stationBox("test").x);
+  test("les développeurs occupent les postes de l'open space, dans l'ordre d'arrivée", () => {
+    const agents = range(3, 0).map((n) => agent(`d${n}`, { station: "dev", since: at(3 - n) }));
+    const out = layoutAgents(modelWith([], agents));
+    assert.deepEqual(xz(out.get("d2")), xz(devSeat(0)), "le plus ancien d'abord");
+    assert.deepEqual(xz(out.get("d1")), xz(devSeat(1)));
+    assert.deepEqual(xz(out.get("d0")), xz(devSeat(2)));
+    assert.equal(new Set([...out.values()].map(key)).size, 3);
   });
 
-  test("l'architecte d'escalade sans feature survole le milieu de la rangée des zones d'escalade", () => {
-    const out = layoutAgents(modelWith([], [agent("a", { type: "architecte", mode: "ESCALADE", station: "escalade" })]));
-    const p = out.get("a");
-    assert.deepEqual([p.anchor, p.x, p.z], ["escalade", 0, escaladeBox("dev").z]);
-    assert.ok(p.y > LAYOUT.stationHeight);
+  test("au-delà de MAX_DEV_SEATS, les derniers développeurs partagent le dernier poste", () => {
+    const out = layoutAgents(modelWith([], range(MAX_DEV_SEATS + 2, 0).map((n) => agent(`d${n}`, { station: "dev", since: at(n) }))));
+    assert.deepEqual(xz(out.get(`d${MAX_DEV_SEATS + 1}`)), xz(devSeat(MAX_DEV_SEATS - 1)));
   });
 
-  test("l'architecte de cadrage et de revue de roadmap survole Cadrage et Roadmap", () => {
+  test("les agents d'une même zone prennent des places différentes (au plus MAX_ZONE_SEATS)", () => {
+    const agents = range(3, 0).map((n) => agent(`t${n}`, { station: "test", type: "testeur", since: at(n) }));
+    const out = layoutAgents(modelWith([], agents));
+    assert.equal(new Set([...out.values()].map(key)).size, 3);
+    assert.deepEqual(xz(out.get("t0")), xz(seatFor("test", "testeur", 0)));
+    assert.deepEqual(xz(out.get("t2")), xz(seatFor("test", "testeur", 2)));
+  });
+
+  test("un architecte sans mode connu est dans la salle de réunion", () => {
+    const p = layoutAgents(modelWith([], [agent("a", { station: null, type: "architecte" })])).get("a");
+    assert.deepEqual(xz(p), xz(seatFor("cadrage", "architecte", 0)));
+  });
+
+  test("un agent sans place (merge, release, station inconnue) attend dans le couloir, devant la porte", () => {
     const out = layoutAgents(
       modelWith([], [
-        agent("c", { type: "architecte", mode: "CADRAGE_INITIAL", station: "cadrage" }),
-        agent("r", { type: "architecte", mode: "REVUE_ROADMAP", station: "roadmap", since: at(1) }),
+        agent("m", { station: "merge", type: "inconnu" }),
+        agent("x", { station: null, type: "inconnu", since: at(1) }),
+        agent("y", { station: "release", type: "inconnu", since: at(2) }),
       ]),
     );
-    assert.equal(out.get("c").x, stationBox("cadrage").x);
-    assert.equal(out.get("r").x, stationBox("roadmap").x);
-  });
-
-  test("un agent sans station connue attend à gauche de la première station", () => {
-    const out = layoutAgents(modelWith([], [agent("a", { station: null, type: "inconnu" }), agent("b", { station: null, type: "inconnu", since: at(1) })]));
-    const first = stationBox("cadrage");
     for (const p of out.values()) {
-      assert.equal(p.anchor, "none");
-      assert.ok(p.x < first.x - first.width / 2);
+      assert.equal(p.anchor, "door");
+      assert.equal(p.seat, null);
+      assert.equal(p.z, OFFICE.door.entry.z);
+      assert.ok(p.x >= OFFICE.door.entry.x);
     }
-    assert.notEqual(key(out.get("a")), key(out.get("b")));
+    assert.equal(new Set([...out.values()].map(key)).size, 3, "chacun sa place dans le couloir");
   });
 
   test("est déterministe et indépendant de l'ordre des agents", () => {

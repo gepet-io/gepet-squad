@@ -1,5 +1,5 @@
 # 0007 — Logique métier sur mesure (normalisation, réducteur, scène)
-Statut : Acceptée — Date : 2026-10-30
+Statut : Acceptée — Date : 2026-10-30 — **Partiellement remplacée** le 2026-11-13 : le point 3 (scène du pipeline, entités lumineuses, bloom) est remplacé par l'[ADR 0009](0009-metaphore-bureau-3d.md) (bureau 3D) et l'[ADR 0011](0011-animation-scriptee-des-bonhommes.md) (animation des bonhommes). Les points 1 et 2 restent en vigueur.
 
 ## Contexte
 
