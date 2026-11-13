@@ -95,6 +95,34 @@ describe("index.html : CSP de l'ADR 0005", () => {
     assert.match(html, /id="repli"[^>]*\shidden/, "le repli texte est masqué tant que la scène fonctionne");
   });
 
+  test("la page s'appelle « Bureau » (titre et aria-label de la scène), plus « pipeline »", () => {
+    assert.match(html, /<title>[^<]*bureau[^<]*<\/title>/i);
+    assert.doesNotMatch(html, /<title>[^<]*pipeline/i);
+    assert.match(html, /<main id="scene"[^>]*aria-label="Bureau en 3D"/);
+    assert.match(html, /id="avertissement"[^>]*role="status"[^>]*\shidden/, "avertissement des fichiers 3D manquants, masqué au départ");
+  });
+
+  test("aucune nouvelle source dans la CSP, aucun blob: : ni dans la CSP, ni dans le code, ni dans les GLB du mobilier (pas d'image intégrée)", () => {
+    const csp = buildCsp(importmapHash(html));
+    assert.equal(
+      csp,
+      ["default-src 'self'", `script-src 'self' '${importmapHash(html)}'`, "style-src 'self'", "img-src 'self' data:", "connect-src 'self'", "frame-ancestors 'none'"].join("; "),
+    );
+    assert.doesNotMatch(csp, /blob:/);
+    for (const file of jsFiles) assert.doesNotMatch(code(file), /blob:|createObjectURL/, file);
+    const dir = path.join(PUBLIC_DIR, "vendor/kenney/furniture");
+    for (const name of fs.readdirSync(dir).filter((f) => f.endsWith(".glb"))) {
+      const bytes = fs.readFileSync(path.join(dir, name));
+      const json = JSON.parse(bytes.subarray(20, 20 + bytes.readUInt32LE(12)).toString("utf8"));
+      assert.deepEqual(json.images ?? [], [], `${name} : une image intégrée ferait créer une URL blob: par GLTFLoader`);
+    }
+  });
+
+  test("main.js branche l'avertissement des fichiers 3D manquants de la scène sur ui.js", () => {
+    assert.match(code("main.js"), /onAssetsFailed:\s*\(count\)\s*=>\s*ui\.showAssetsWarning\(els\.warning,\s*count\)/);
+    assert.match(code("main.js"), /getElementById\("avertissement"\)/);
+  });
+
   test("les feuilles de style ne chargent rien d'externe", () => {
     for (const file of ["css/app.css", "css/agents.css", "css/fallback.css"]) {
       const css = fs.readFileSync(path.join(PUBLIC_DIR, file), "utf8");

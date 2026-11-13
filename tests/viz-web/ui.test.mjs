@@ -3,7 +3,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 
-import { renderLegend, showConnection, showRepo } from "../../viz/public/js/ui.js";
+import { renderLegend, showAssetsWarning, showConnection, showRepo } from "../../viz/public/js/ui.js";
 import { STATUS_COLORS, colorCss } from "../../viz/public/js/view-model.js";
 import { fakeDocument, fakeElement } from "./dom-fakes.mjs";
 
@@ -48,5 +48,32 @@ describe("légende", () => {
     renderLegend(list, doc);
     renderLegend(list, doc);
     assert.equal(list.children.length, Object.keys(STATUS_COLORS).length);
+  });
+});
+
+describe("avertissement des fichiers 3D manquants", () => {
+  test("showAssetsWarning affiche le nombre de fichiers en échec, par textContent, et rend l'élément visible", () => {
+    const el = fakeElement("p", { hidden: true });
+    showAssetsWarning(el, 3);
+    assert.equal(el.hidden, false);
+    assert.match(el.textContent, /^3 fichiers 3D n'ont pas pu être chargés/);
+    assert.deepEqual(el.children, []);
+  });
+
+  test("appelé deux fois, l'avertissement reste unique (même élément, même texte)", () => {
+    const el = fakeElement("p", { hidden: true });
+    showAssetsWarning(el, 2);
+    const once = el.textContent;
+    showAssetsWarning(el, 2);
+    assert.equal(el.textContent, once);
+    assert.deepEqual(el.children, []);
+  });
+
+  test("rien à signaler (0 fichier) ou pas d'élément : aucun effet, aucune exception", () => {
+    const el = fakeElement("p", { hidden: true });
+    showAssetsWarning(el, 0);
+    assert.equal(el.hidden, true);
+    assert.equal(el.textContent, "");
+    assert.doesNotThrow(() => showAssetsWarning(null, 2));
   });
 });

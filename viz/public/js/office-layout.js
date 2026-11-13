@@ -4,8 +4,8 @@
 //
 // Repère : x vers la droite, y vers le haut, z vers le spectateur. Le kanban est sur le mur du fond (z minimal), la
 // porte sur le mur de gauche. Une rotation est un lacet en radians : 0 regarde vers +z, `Math.PI` vers -z.
-// Les dimensions du mobilier sont des emprises en unités du monde, après l'échelle d'`assets.js` (1 pour Kenney 2018
-// comme 2026) ; les identifiants de meubles sont ceux du manifeste d'`assets.js`.
+// Les dimensions du mobilier sont des emprises en unités du monde, après l'échelle d'`assets.js` (2 pour le Furniture Kit 2.0 :
+// un mur y mesure 1 x 1,29, soit environ 2,6 m) ; les identifiants de meubles sont ceux du manifeste d'`assets.js`.
 // Les sorties dépendent uniquement des arguments : les mêmes entrées donnent toujours les mêmes sorties.
 
 import { STATIONS, ESCALADE } from "./state.js";

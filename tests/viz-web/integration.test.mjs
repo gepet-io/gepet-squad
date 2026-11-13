@@ -10,7 +10,8 @@ import path from "node:path";
 import { createRequire } from "node:module";
 
 import { boot, connect } from "../../viz/public/js/main.js";
-import { layoutFeatures } from "../../viz/public/js/layout.js";
+import { kanbanLayout } from "../../viz/public/js/office-layout.js";
+const noteOf = (model, number) => kanbanLayout(model).notes.find((n) => n.number === number);
 import { fakePage, flatten } from "./dom-fakes.mjs";
 import { INDEX_HTML, PUBLIC_DIR } from "./importmap.mjs";
 
@@ -147,8 +148,8 @@ describe("main.js face au vrai serveur (intégration)", () => {
     // Une feature qui n'est ni terminée ni bloquée : on la fait avancer vers la revue.
     const target = initial.features.find((f) => !["in-review", "done", "blocked"].includes(f.status));
     assert.ok(target, `aucune feature utilisable dans ${JSON.stringify(initial.features.map((f) => [f.number, f.status]))}`);
-    const before = layoutFeatures(initial).get(target.number);
-    assert.ok(before, "la feature a une place dans la scène");
+    const before = noteOf(initial, target.number);
+    assert.ok(before, "la feature a un post-it dans le kanban");
 
     const written = Date.now();
     fs.appendFileSync(
@@ -164,14 +165,14 @@ describe("main.js face au vrai serveur (intégration)", () => {
     assert.ok(elapsed < 3000);
 
     const model = app.getModel();
-    const after = layoutFeatures(model).get(target.number);
-    assert.equal(after.station, "verification");
-    assert.notEqual(after.station, before.station);
-    assert.ok(after.x !== before.x, "la position 3D change");
+    const after = noteOf(model, target.number);
+    assert.equal(after.column, "verification");
+    assert.notEqual(after.column, before.column);
+    assert.ok(after.x !== before.x, "le post-it change de colonne");
     const last = updates.at(-1);
     assert.deepEqual(
       last.transitions.filter((t) => t.id === target.number),
-      [{ kind: "feature-move", id: target.number, from: before.station, to: "verification" }],
+      [{ kind: "feature-move", id: target.number, from: before.column, to: "verification" }],
     );
   });
 
