@@ -1,25 +1,35 @@
 // Machine d'états pure des bonhommes (ADR 0011) : poste, modèle, état, clip, position, bulle et dossier de chaque agent,
-// pour le cycle nominal (entrer, travailler, rendre un verdict, repartir). Module pur : aucun import de `three`, aucun DOM,
-// ni hasard ni horloge ; le temps est l'argument `now` (ms). Les interruptions, la reprise, le chef de projet et le mode
-// réduit complet arrivent avec F-31 (ici, le mode réduit saute seulement la marche).
+// pour le cycle nominal (entrer, travailler, rendre un verdict, repartir), les interruptions de marche, la reprise, le geste
+// du chef de projet et le mode réduit. Module pur : aucun import de `three`, aucun DOM, ni hasard ni horloge ; le temps est
+// l'argument `now` (ms).
 //
 // API : stepCrew(crew, model, transitions, now, reduced) -> crew. `crew` est un tableau de bonhommes (vide au départ) ;
-// ni `crew`, ni `model`, ni `transitions` ne sont modifiés. L'état cible vient de la phase de l'agent dans le modèle : les
-// transitions de `state.js` ne servent pas à la décider (c'est idempotent, et un pas manqué ne perd rien).
+// ni `crew`, ni `model`, ni `transitions` ne sont modifiés. L'état cible d'un agent vient de sa phase dans le modèle (c'est
+// idempotent, et un pas manqué ne perd rien) : une seule transition en attente par bonhomme, la dernière reçue. Les
+// transitions ne servent qu'au geste du chef de projet (`feature-move`, `feature-status`, `release` vers `merged`) : elles
+// doivent être passées une seule fois, au pas qui suit leur apparition.
+//
+// Le chef de projet est un bonhomme de plus (`id` "pm", `seat` "pm", dernier du tableau), toujours présent à son bureau :
+// `sit` au repos, `interact-right` pendant GESTURE_MS après une transition (au plus un geste par GESTURE_MS, l'excédent est
+// ignoré). Place : un bonhomme sorti (`gone`) ne bloque la place qu'en dernier recours ; à sa reprise il retrouve la
+// sienne si elle est libre, sinon la première place libre de sa zone.
 //
 // Un bonhomme : { id, role, seat, model, state, clip, position, heading, bubble, folder } plus des champs internes
 // (`phase`, `walk`, `since`, `reportedAt`) que `characters.js` ignore.
 //   seat    clé du poste dans office-layout.js (`dev:<i>` ou `<station>:<rang>`), fixée à l'entrée
 //   state   entering | working | reporting | leaving | gone | stale
+//   frozen  true en mode réduit : `characters.js` fige le clip sur sa première image
 //   clip    walk | sit | interact-right | idle | emote-yes | emote-no | holding-both
 //   position { x, y, z } (y = 0)   heading : lacet en radians   bubble : texte ou null   folder : { label, x, z } ou null
 
-import { MAX_DEV_SEATS, MAX_ZONE_SEATS, devSeat, seatFor, waypoints } from "./office-layout.js";
+import { MAX_DEV_SEATS, MAX_ZONE_SEATS, OFFICE, devSeat, seatFor, waypoints } from "./office-layout.js";
 import { characterFor } from "./assets.js";
 import { durationOf, pathTo, sample } from "./paths.js";
 
 export const BUBBLE_MS = 4000;
 export const SIT_MS = 800; // durée du clip `sit` avant de taper
+export const GESTURE_MS = 1000; // un cycle d'`interact-right` du chef de projet ; aussi l'écart minimal entre deux gestes
+export const PM_ID = "pm";
 
 const YES = new Set(["PASS", "LIVRÉ", "APPROUVÉ"]);
 const NO = new Set(["FAIL", "BLOQUÉ", "À REVOIR"]);
@@ -42,13 +52,13 @@ function seatOf(key, role) {
   return zone === "dev" ? devSeat(Number(rank)) : seatFor(zone, role, Number(rank));
 }
 
-// Première place libre de la zone (`taken` : clés occupées) ; zone pleine : la dernière place. `null` : zone sans place.
-function allocate(zone, role, taken) {
+// Place à attribuer dans la zone : la première libre (ni dans `taken`, occupées, ni dans `soft`, tenues par un bonhomme
+// sorti), sinon la première tenue seulement par un bonhomme sorti, sinon la dernière. `null` : zone sans place.
+function allocate(zone, role, taken, soft = new Set()) {
   const count = zone === "dev" ? MAX_DEV_SEATS : MAX_ZONE_SEATS;
   if (zone !== "dev" && seatFor(zone, role, 0) === null) return null;
-  let rank = 0;
-  while (rank < count - 1 && taken.has(`${zone}:${rank}`)) rank++;
-  return `${zone}:${rank}`;
+  const ranks = Array.from({ length: count }, (_, i) => `${zone}:${i}`);
+  return ranks.find((k) => !taken.has(k) && !soft.has(k)) ?? ranks.find((k) => !taken.has(k)) ?? ranks[count - 1];
 }
 
 // --- Marche --------------------------------------------------------------------------------------------------------------
@@ -116,8 +126,8 @@ function retarget(b, seat, phase, now, reduced) {
 
 // --- Sorties (clip, position, bulle, dossier) ----------------------------------------------------------------------------
 
-function present(b, seat, agent, now) {
-  const base = { ...b, folder: null, bubble: null };
+function present(b, seat, agent, now, reduced) {
+  const base = { ...b, folder: null, bubble: null, frozen: reduced };
   if (b.walk) {
     const p = walkPosition(b.walk, now);
     return { ...base, clip: "walk", position: { x: p.x, y: 0, z: p.z }, heading: p.heading };
@@ -135,41 +145,72 @@ function present(b, seat, agent, now) {
   }
   // working : debout, on tape (sauf l'architecte au kanban, qui reste immobile) ; assis, `sit` puis frappe.
   if (!seat.seated) return { ...out, clip: seat.station === "roadmap" && seat.rank === 0 ? "idle" : "interact-right" };
-  return { ...out, clip: now - b.since < SIT_MS ? "sit" : "interact-right" };
+  return { ...out, clip: !reduced && now - b.since < SIT_MS ? "sit" : "interact-right" };
+}
+
+// --- Chef de projet ------------------------------------------------------------------------------------------------------
+
+const isGesture = (t) => t.kind === "feature-move" || t.kind === "feature-status" || (t.kind === "release" && t.to === "merged");
+
+// Le chef de projet à l'instant `now` : un geste est lancé si une transition le déclenche et que le dernier date d'au moins
+// GESTURE_MS ; il dure GESTURE_MS. En mode réduit, il reste assis (pas de geste).
+function stepPm(prev, transitions, now, reduced) {
+  let gestureAt = reduced ? null : (prev?.gestureAt ?? null);
+  if (!reduced && (transitions ?? []).some(isGesture) && (gestureAt === null || now - gestureAt >= GESTURE_MS)) gestureAt = now;
+  const gesturing = gestureAt !== null && now >= gestureAt && now - gestureAt < GESTURE_MS;
+  return {
+    id: PM_ID, role: "chef-de-projet", seat: PM_ID, model: characterFor("chef-de-projet"), state: "working",
+    clip: gesturing ? "interact-right" : "sit", position: { x: OFFICE.pm.x, y: 0, z: OFFICE.pm.z }, heading: OFFICE.pm.rotation,
+    bubble: null, folder: null, frozen: reduced, gestureAt,
+  };
 }
 
 /**
  * Fait avancer l'équipe jusqu'à l'instant `now`.
  * @param {object[]} crew bonhommes précédents (`[]` au départ), non modifiés
  * @param {object} model modèle client de `state.js` (`agents`), non modifié
- * @param {object[]} [transitions] transitions renvoyées par `state.js` (non nécessaires : l'état cible vient du modèle)
+ * @param {object[]} [transitions] transitions renvoyées par `state.js`, une seule fois (elles ne déclenchent que le geste du chef de projet)
  * @param {number} now instant courant en ms
  * @param {boolean} [reduced] `prefers-reduced-motion` : pas de marche
  * @returns {object[]} nouvel état de l'équipe
  */
 export function stepCrew(crew, model, transitions, now, reduced = false) {
-  void transitions;
-  const agents = new Map((model?.agents ?? []).map((a) => [a.id, a]));
+  const agents = new Map((model?.agents ?? []).filter((a) => a.id !== PM_ID).map((a) => [a.id, a]));
   const known = new Map((crew ?? []).filter((b) => agents.has(b.id)).map((b) => [b.id, b]));
-  const taken = new Set([...known.values()].map((b) => b.seat));
+  // Places tenues par les bonhommes présents (`taken`) ou sortis (`soft`), hors `exceptId`.
+  const held = (exceptId) => {
+    const taken = new Set();
+    const soft = new Set();
+    for (const [id, x] of known) if (id !== exceptId) (x.state === "gone" ? soft : taken).add(x.seat);
+    return { taken, soft };
+  };
   const out = [];
 
   for (const agent of agents.values()) {
     let b = known.get(agent.id);
     let seat;
     if (b) {
+      // Reprise après `gone` : le même poste s'il est libre, sinon la première place libre de la zone.
+      if (b.state === "gone" && !b.walk && agent.phase !== "finished" && b.phase !== agent.phase) {
+        const { taken, soft } = held(agent.id);
+        if (taken.has(b.seat)) {
+          const zone = b.seat.split(":")[0];
+          const key = allocate(zone, b.role, taken, soft);
+          b = { ...b, seat: key, model: characterFor(b.role, Number(key.split(":")[1])) };
+        }
+      }
       seat = seatOf(b.seat, b.role);
     } else {
       const zone = zoneOf(agent);
-      const key = zone === null ? null : allocate(zone, agent.type, taken);
+      const { taken, soft } = held(null);
+      const key = zone === null ? null : allocate(zone, agent.type, taken, soft);
       seat = key === null ? null : seatOf(key, agent.type);
       if (seat === null) continue; // pas de place pour cette station
-      taken.add(key);
       const index = Number(key.split(":")[1]);
       b = {
         id: agent.id, role: agent.type, seat: key, model: characterFor(agent.type, index),
         state: "gone", phase: null, walk: null, since: now, reportedAt: null,
-        clip: "idle", position: { x: door(seat).x, y: 0, z: door(seat).z }, heading: 0, bubble: null, folder: null,
+        clip: "idle", position: { x: door(seat).x, y: 0, z: door(seat).z }, heading: 0, bubble: null, folder: null, frozen: reduced,
       };
       b = agent.phase === "finished" ? { ...b, phase: "finished" } : startEntering(b, seat, door(seat), agent.phase, now, reduced);
     }
@@ -181,7 +222,9 @@ export function stepCrew(crew, model, transitions, now, reduced = false) {
     }
     if (reduced && b.walk) b = settle(b, seat, b.phase, now);
     if (b.phase !== agent.phase) b = retarget(b, seat, agent.phase, now, reduced);
-    out.push(present(b, seat, agent, now));
+    known.set(agent.id, b);
+    out.push(present(b, seat, agent, now, reduced));
   }
+  out.push(stepPm((crew ?? []).find((b) => b.id === PM_ID), transitions, now, reduced));
   return out;
 }

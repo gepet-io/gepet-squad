@@ -6,9 +6,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { stepCrew, verdictClip, BUBBLE_MS, SIT_MS } from "../../viz/public/js/crew.js";
+import { stepCrew, verdictClip, BUBBLE_MS, SIT_MS, GESTURE_MS } from "../../viz/public/js/crew.js";
 import { characterFor } from "../../viz/public/js/assets.js";
-import { devSeat, seatFor, waypoints, MAX_DEV_SEATS } from "../../viz/public/js/office-layout.js";
+import { devSeat, seatFor, waypoints, MAX_DEV_SEATS, OFFICE } from "../../viz/public/js/office-layout.js";
 import { durationOf } from "../../viz/public/js/paths.js";
 import { init, apply, tick } from "../../viz/public/js/state.js";
 import { agent, stateOf, assertPure } from "./support.mjs";
@@ -22,7 +22,8 @@ const DEV = (id, extra) => A(id, "developpeur", extra);
 const VER = (id, extra) => A(id, "verificateur", extra);
 const TST = (id, extra) => A(id, "testeur", extra);
 const by = (crew, id) => crew.find((b) => b.id === id);
-const seatKeys = (crew) => crew.map((b) => b.seat);
+const team = (crew) => crew.filter((b) => b.id !== "pm");
+const seatKeys = (crew) => team(crew).map((b) => b.seat);
 
 function deepFreeze(v) {
   if (v && typeof v === "object" && !Object.isFrozen(v)) {
@@ -168,7 +169,7 @@ describe("verdicts et bulle", () => {
 describe("attribution des places", () => {
   test("4 développeurs simultanés : postes 0 à 3, dont un supplémentaire, modèles selon l'indice", () => {
     const ids = ["d1", "d2", "d3", "d4"];
-    const crew = stepCrew([], model(...ids.map((id) => DEV(id))), [], T);
+    const crew = team(stepCrew([], model(...ids.map((id) => DEV(id))), [], T));
     assert.deepEqual(seatKeys(crew), ["dev:0", "dev:1", "dev:2", "dev:3"]);
     assert.equal(devSeat(3).extra, true);
     crew.forEach((b, i) => assert.deepEqual(b.model, characterFor("developpeur", i)));
@@ -176,7 +177,7 @@ describe("attribution des places", () => {
 
   test("plus de développeurs que de postes : le dernier poste est réutilisé", () => {
     const ids = Array.from({ length: MAX_DEV_SEATS + 1 }, (_, i) => `d${i}`);
-    const crew = stepCrew([], model(...ids.map((id) => DEV(id))), [], T);
+    const crew = team(stepCrew([], model(...ids.map((id) => DEV(id))), [], T));
     assert.equal(crew[MAX_DEV_SEATS].seat, `dev:${MAX_DEV_SEATS - 1}`);
   });
 
@@ -242,7 +243,7 @@ describe("attribution des places", () => {
   });
 
   test("un agent sans place (station merge) n'a pas de bonhomme", () => {
-    assert.deepEqual(stepCrew([], model(A("x", "developpeur", { station: "merge" }), A("y", "testeur", { station: null })), [], T).map((b) => b.id), ["x"]);
+    assert.deepEqual(stepCrew([], model(A("x", "developpeur", { station: "merge" }), A("y", "testeur", { station: null })), [], T).map((b) => b.id), ["x", "pm"]);
   });
 });
 
@@ -320,14 +321,19 @@ describe("rejeu du journal cycle-complet.jsonl", () => {
   const FILE = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "fixtures", "journal", "cycle-complet.jsonl");
   const events = fs.readFileSync(FILE, "utf8").trim().split("\n").map((l) => JSON.parse(l));
 
-  function replay() {
+  function replay(reduced = false) {
     let m = init(stateOf({}));
     let crew = [];
     const states = new Map(); // id -> suites d'états sans répétition
     const seatsByAgent = new Map();
     const clips = new Map(); // id -> clips de reporting vus
+    const pmClips = new Set();
     const observe = (now) => {
       for (const b of crew) {
+        if (b.id === "pm") {
+          pmClips.add(b.clip);
+          continue;
+        }
         const seq = states.get(b.id) ?? [];
         if (seq.at(-1) !== b.state) seq.push(b.state);
         states.set(b.id, seq);
@@ -344,20 +350,20 @@ describe("rejeu du journal cycle-complet.jsonl", () => {
     for (const ev of events) {
       const at = Date.parse(ev.ts);
       for (; t < at; t += 250) {
-        crew = stepCrew(crew, m, [], t);
+        crew = stepCrew(crew, m, [], t, reduced);
         observe(t);
       }
       const r = apply(m, { event: "evt", data: JSON.stringify(ev) });
       m = r.model;
-      crew = stepCrew(crew, m, r.transitions, at);
+      crew = stepCrew(crew, m, r.transitions, at, reduced);
       observe(at);
       t = at;
     }
     for (const stop = t + 20_000; t < stop; t += 250) {
-      crew = stepCrew(crew, m, [], t);
+      crew = stepCrew(crew, m, [], t, reduced);
       observe(t);
     }
-    return { m, crew, states, seatsByAgent, clips, end: t };
+    return { m, crew, states, seatsByAgent, clips, pmClips, end: t };
   }
 
   const cycle = ["entering", "working", "reporting", "leaving", "gone"];
@@ -399,6 +405,248 @@ describe("rejeu du journal cycle-complet.jsonl", () => {
     const { m, crew, end } = replay();
     const purged = tick(m, new Date(end + 11 * 60 * 1000).toISOString());
     const after = stepCrew(crew, purged.model, purged.transitions, end + 11 * 60 * 1000);
-    assert.deepEqual(after, []);
+    assert.deepEqual(team(after), []);
+  });
+
+  test("la reprise de l'agent (finished puis running) rend le même bonhomme au même poste", () => {
+    const { states, seatsByAgent } = replay();
+    assert.equal(states.get("tu-dev").filter((s) => s === "gone").length, 2);
+    assert.equal(seatsByAgent.get("tu-dev"), "dev:0");
+  });
+
+  test("le chef de projet est assis au repos et fait un geste sur les changements de la fixture", () => {
+    const { pmClips } = replay();
+    assert.deepEqual([...pmClips].sort(), ["interact-right", "sit"]);
+  });
+
+  test("rejouée en mode réduit : aucune marche, aucune position intermédiaire, mêmes états finaux", () => {
+    const { states, clips, pmClips, m } = replay(true);
+    for (const [id, seq] of states) {
+      assert.ok(!seq.includes("entering") && !seq.includes("leaving"), `${id} : ${seq}`);
+    }
+    assert.deepEqual(states.get("tu-dev"), ["working", "reporting", "gone", "working", "reporting", "gone"]);
+    assert.equal(clips.get("tu-ver1"), "emote-no");
+    assert.deepEqual([...pmClips], ["sit"]);
+    assert.ok(m.agents.length > 0);
+  });
+
+  test("en mode réduit, chaque pas place le bonhomme au poste ou à la porte, jamais entre les deux", () => {
+    const door = (b) => waypoints()[b.seat][0];
+    let crew = [];
+    let m = init(stateOf({}));
+    let t = Date.parse(events[0].ts);
+    for (const ev of events) {
+      const at = Date.parse(ev.ts);
+      const r = apply(m, { event: "evt", data: JSON.stringify(ev) });
+      m = r.model;
+      for (let k = 0; k < 4; k++) {
+        crew = stepCrew(crew, m, k === 0 ? r.transitions : [], at + k * 100, true);
+        for (const b of team(crew)) {
+          const seat = b.seat.startsWith("dev:") ? devSeat(Number(b.seat.slice(4))) : seatFor(b.seat.split(":")[0], b.role, Number(b.seat.split(":")[1]));
+          const target = b.state === "gone" ? door(b) : seat;
+          assert.deepEqual([b.position.x, b.position.z], [target.x, target.z], `${b.id} ${b.state}`);
+          assert.equal(b.frozen, true);
+        }
+      }
+      t = at;
+    }
+    assert.ok(t > 0);
+  });
+});
+
+describe("interruptions : reprise, poste, transition en attente", () => {
+  test("reprise (finished puis reported) pendant leaving : même poste, bulle de 4 s depuis l'arrivée", () => {
+    const a = VER("v1", { verdict: "PASS" });
+    const leaving = stepCrew(seated(a), model({ ...a, phase: "finished" }), [], T + WALK + 10);
+    assert.equal(leaving[0].state, "leaving");
+    const back = stepCrew(leaving, model({ ...a, phase: "reported" }), [], T + WALK + 300);
+    assert.equal(back[0].state, "entering");
+    assert.equal(back[0].seat, "verification:0");
+    const arrival = T + WALK + 300 + 3000; // la marche dure au plus 3 s
+    const here = stepCrew(back, model({ ...a, phase: "reported" }), [], arrival);
+    assert.equal(here[0].state, "reporting");
+    assert.equal(here[0].bubble, "PASS");
+    const landed = here[0].reportedAt; // instant réel d'arrivée, après la reprise et avant `arrival`
+    assert.ok(landed > T + WALK + 300 && landed <= arrival, "la bulle part de l'arrivée, pas de la reprise");
+    assert.equal(stepCrew(here, model({ ...a, phase: "reported" }), [], landed + BUBBLE_MS - 1)[0].bubble, "PASS");
+    assert.equal(stepCrew(here, model({ ...a, phase: "reported" }), [], landed + BUBBLE_MS)[0].bubble, null);
+  });
+
+  test("reprise après gone : poste repris par un autre, le bonhomme prend la première place libre", () => {
+    const f = (a) => ({ ...a, phase: "finished" });
+    let t = T;
+    let crew = stepCrew([], model(VER("v1"), VER("v2"), VER("v3")), [], t);
+    crew = stepCrew(crew, model(VER("v1"), VER("v2"), VER("v3")), [], (t += WALK));
+    assert.deepEqual(seatKeys(crew), ["verification:0", "verification:1", "verification:2"]);
+    // v1 sort : sa place 0 n'est plus tenue que par un bonhomme sorti.
+    crew = stepCrew(crew, model(f(VER("v1")), VER("v2"), VER("v3")), [], (t += 10));
+    crew = stepCrew(crew, model(f(VER("v1")), VER("v2"), VER("v3")), [], (t += WALK));
+    assert.equal(by(crew, "v1").state, "gone");
+    // v4 arrive : plus de place libre, il prend la place 0 de v1.
+    crew = stepCrew(crew, model(f(VER("v1")), VER("v2"), VER("v3"), VER("v4")), [], (t += 10));
+    assert.equal(by(crew, "v4").seat, "verification:0");
+    // v2 sort à son tour.
+    crew = stepCrew(crew, model(f(VER("v1")), f(VER("v2")), VER("v3"), VER("v4")), [], (t += WALK));
+    crew = stepCrew(crew, model(f(VER("v1")), f(VER("v2")), VER("v3"), VER("v4")), [], (t += WALK));
+    assert.equal(by(crew, "v2").state, "gone");
+    // v1 revient : sa place est prise, il prend la première place libre (celle de v2, sortie).
+    crew = stepCrew(crew, model(VER("v1"), f(VER("v2")), VER("v3"), VER("v4")), [], (t + 10));
+    assert.equal(by(crew, "v1").state, "entering");
+    assert.equal(by(crew, "v1").seat, "verification:1");
+    assert.equal(by(crew, "v4").seat, "verification:0", "le poste occupé ne bouge pas");
+  });
+
+  test("reprise après gone : poste libre, le bonhomme retrouve le même", () => {
+    const f = (a) => ({ ...a, phase: "finished" });
+    let t = T + WALK;
+    let crew = seated(VER("v1"));
+    crew = stepCrew(crew, model(f(VER("v1")), VER("v2")), [], (t += 10));
+    crew = stepCrew(crew, model(f(VER("v1")), VER("v2")), [], (t += WALK));
+    assert.equal(by(crew, "v1").state, "gone");
+    assert.equal(by(crew, "v2").seat, "verification:1");
+    crew = stepCrew(crew, model(VER("v1"), VER("v2")), [], (t + 10));
+    assert.equal(by(crew, "v1").seat, "verification:0");
+    assert.equal(by(crew, "v1").state, "entering");
+  });
+
+  test("deux changements pendant une marche : seul le dernier compte", () => {
+    const a = VER("v1", { verdict: "PASS" });
+    const first = stepCrew([], model(a), [], T);
+    const arrival = T + durationOf(waypoints()["verification:0"]);
+    const mid = stepCrew(first, model({ ...a, phase: "reported" }), [], T + 100);
+    const mid2 = stepCrew(mid, model({ ...a, phase: "unknown" }), [], T + 200);
+    assert.equal(mid2[0].state, "entering");
+    const stale = stepCrew(mid2, model({ ...a, phase: "unknown" }), [], arrival + 10);
+    assert.equal(stale[0].state, "stale");
+    assert.equal(stale[0].bubble, "?");
+    // reported puis retour à running : on arrive et on travaille, sans bulle de verdict.
+    const m3 = stepCrew(first, model({ ...a, phase: "reported" }), [], T + 100);
+    const m4 = stepCrew(m3, model(a), [], T + 200);
+    const there = stepCrew(m4, model(a), [], arrival + 10);
+    assert.equal(there[0].state, "working");
+    assert.equal(there[0].bubble, null);
+  });
+
+  test("finished puis retour à running pendant entering : le bonhomme repart vers le poste depuis sa position", () => {
+    const first = stepCrew([], model(DEV("d1")), [], T);
+    const total = durationOf(waypoints()["dev:0"]);
+    const mid = stepCrew(first, model(DEV("d1")), [], T + total / 2);
+    const turned = stepCrew(mid, model(DEV("d1", { phase: "finished" })), [], T + total / 2 + 100);
+    const again = stepCrew(turned, model(DEV("d1")), [], T + total / 2 + 200);
+    assert.equal(again[0].state, "entering");
+    assert.ok(Math.hypot(again[0].position.x - mid[0].position.x, again[0].position.z - mid[0].position.z) < 1.5);
+  });
+});
+
+describe("chef de projet", () => {
+  const pm = (crew) => by(crew, "pm");
+  const empty = model();
+  const kinds = {
+    "feature-move": { kind: "feature-move", id: 1, from: "dev", to: "verification" },
+    "feature-status": { kind: "feature-status", id: 1, from: "in-progress", to: "in-review" },
+    "release merged": { kind: "release", id: "release/1", from: "open", to: "merged" },
+  };
+
+  test("toujours présent, assis sans taper au repos, à son bureau", () => {
+    const crew = stepCrew([], empty, [], T);
+    assert.equal(pm(crew).state, "working");
+    assert.equal(pm(crew).clip, "sit");
+    assert.equal(pm(crew).seat, "pm");
+    assert.deepEqual(pm(crew).model, characterFor("chef-de-projet"));
+    assert.equal(pm(crew).heading, OFFICE.pm.rotation);
+    for (let k = 1; k < 20; k++) assert.equal(pm(stepCrew(crew, empty, [], T + k * 1000)).clip, "sit");
+  });
+
+  for (const [name, tr] of Object.entries(kinds)) {
+    test(`geste sur ${name} : un cycle d'interact-right puis retour à sit`, () => {
+      const c0 = stepCrew([], empty, [], T);
+      const c1 = stepCrew(c0, empty, [tr], T + 100);
+      assert.equal(pm(c1).clip, "interact-right");
+      const c2 = stepCrew(c1, empty, [], T + 100 + GESTURE_MS - 1);
+      assert.equal(pm(c2).clip, "interact-right");
+      const c3 = stepCrew(c2, empty, [], T + 100 + GESTURE_MS);
+      assert.equal(pm(c3).clip, "sit");
+    });
+  }
+
+  test("les autres transitions ne déclenchent aucun geste (release non merged, agent-add, feature-retry)", () => {
+    const others = [
+      { kind: "release", id: "r", from: null, to: "open" }, { kind: "agent-add", id: "x", from: null, to: "dev" },
+      { kind: "feature-retry", id: 1, from: 0, to: 1 }, { kind: "milestone", id: 1, from: "open", to: "closed" },
+    ];
+    assert.equal(pm(stepCrew(stepCrew([], empty, [], T), empty, others, T + 10)).clip, "sit");
+  });
+
+  test("au plus un geste par seconde : l'excédent est ignoré, sans file", () => {
+    const c0 = stepCrew([], empty, [], T);
+    const c1 = stepCrew(c0, empty, [kinds["feature-move"]], T);
+    const c2 = stepCrew(c1, empty, [kinds["feature-status"], kinds["release merged"]], T + 400);
+    assert.equal(pm(c2).gestureAt, T, "le geste en cours n'est pas relancé");
+    const c3 = stepCrew(c2, empty, [], T + GESTURE_MS);
+    assert.equal(pm(c3).clip, "sit", "pas de geste en file d'attente");
+    const c4 = stepCrew(c3, empty, [], T + 5 * GESTURE_MS);
+    assert.equal(pm(c4).clip, "sit");
+    const c5 = stepCrew(c4, empty, [kinds["feature-status"]], T + 6 * GESTURE_MS);
+    assert.equal(pm(c5).clip, "interact-right", "un nouveau geste est accepté après une seconde");
+  });
+
+  test("le geste est indépendant des agents : il ne change ni leurs états ni leurs places", () => {
+    const m = model(DEV("d1"));
+    const a = stepCrew(stepCrew([], m, [], T), m, [], T + 500);
+    const b = stepCrew(stepCrew([], m, [], T), m, [kinds["feature-move"]], T + 500);
+    assert.deepEqual(team(a), team(b));
+  });
+});
+
+describe("mode réduit, état par état", () => {
+  const R = (crew, ...agents) => stepCrew(crew, model(...agents), [], T + 50, true);
+  const at = (b, seat) => assert.deepEqual([b.position.x, b.position.z], [seat.x, seat.z]);
+
+  test("running : working au poste, clip figé, sans passage par entering", () => {
+    const [b] = stepCrew([], model(DEV("d1", { issue: 5 })), [], T, true);
+    assert.equal(b.state, "working");
+    assert.equal(b.frozen, true);
+    assert.equal(b.clip, "interact-right");
+    assert.equal(b.folder.label, "#5");
+    at(b, devSeat(0));
+  });
+
+  test("reported : reporting au poste avec bulle de 4 s puis assis", () => {
+    const a = VER("v1", { verdict: "PASS", phase: "reported" });
+    const first = stepCrew([], model(a), [], T, true);
+    assert.equal(first[0].state, "reporting");
+    assert.equal(first[0].bubble, "PASS");
+    at(first[0], seatFor("verification", "verificateur", 0));
+    assert.equal(stepCrew(first, model(a), [], T + BUBBLE_MS + 1, true)[0].bubble, null);
+  });
+
+  test("unknown : stale avec bulle « ? » au poste", () => {
+    const [b] = stepCrew([], model(DEV("d1", { phase: "unknown" })), [], T, true);
+    assert.equal(b.state, "stale");
+    assert.equal(b.bubble, "?");
+    at(b, devSeat(0));
+  });
+
+  test("finished : gone à la porte, et reprise directe au poste", () => {
+    const [g] = stepCrew([], model(DEV("d1", { phase: "finished" })), [], T, true);
+    assert.equal(g.state, "gone");
+    const back = R([g], DEV("d1"));
+    assert.equal(back[0].state, "working");
+    at(back[0], devSeat(0));
+    const out = R(back, DEV("d1", { phase: "finished" }));
+    assert.equal(out[0].state, "gone");
+  });
+
+  test("passer en mode réduit pendant une marche pose le bonhomme à destination", () => {
+    const first = stepCrew([], model(DEV("d1")), [], T);
+    const mid = stepCrew(first, model(DEV("d1")), [], T + 500);
+    assert.equal(mid[0].state, "entering");
+    const r = stepCrew(mid, model(DEV("d1")), [], T + 600, true);
+    assert.equal(r[0].state, "working");
+    at(r[0], devSeat(0));
+  });
+
+  test("hors mode réduit, les clips ne sont pas figés", () => {
+    assert.equal(stepCrew([], model(DEV("d1")), [], T)[0].frozen, false);
   });
 });
