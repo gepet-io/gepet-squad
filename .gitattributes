@@ -1,4 +1,5 @@
 * text=auto eol=lf
 *.glb binary
 *.png binary
+viz/public/vendor/kenney/LICENSE-*.txt binary
 viz/public/vendor/** linguist-vendored
