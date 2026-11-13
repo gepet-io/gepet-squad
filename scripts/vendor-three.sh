@@ -15,9 +15,12 @@ set -euo pipefail
 PINNED_VERSION="0.187.0"
 VERSION="${1:-$PINNED_VERSION}"
 
-# Chemins relatifs à examples/jsm/ : les 5 addons demandés, plus leurs imports internes.
+# Chemins relatifs à examples/jsm/ : les addons demandés, plus leurs imports internes.
 ADDONS=(
   controls/OrbitControls.js
+  loaders/GLTFLoader.js
+  utils/SkeletonUtils.js
+  utils/BufferGeometryUtils.js
   renderers/CSS2DRenderer.js
   postprocessing/EffectComposer.js
   postprocessing/RenderPass.js
