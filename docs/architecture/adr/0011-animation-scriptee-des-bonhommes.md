@@ -39,10 +39,12 @@ Aucune brique existante ne donne ce comportement, qui encode le workflow gepet-s
     | `gone` | invisible | arrivé à la porte |
     | `stale` | `idle`, avec une bulle « ? » | phase `unknown` |
 
-  - **Interruptions** : chaque changement de phase calcule l'état cible **depuis la position courante**. Un `finished` reçu pendant `entering` fait demi-tour vers la porte. Une reprise pendant `leaving` ou `gone` relance `entering` vers le **même** poste s'il est libre. Une file d'au plus une transition en attente évite les à-coups.
+  - **Occupants simultanés** : la squad lance plusieurs features en parallèle, donc plusieurs vérificateurs, testeurs ou architectes peuvent être actifs en même temps. Chaque zone à occupant unique (`cadrage`, `roadmap`, `verification`, `test`, `escalade`) offre `MAX_ZONE_SEATS = 3` places, données par `seatFor(station, role, rank)` : le rang 0 est le poste principal, les rangs 1 et 2 sont des places debout dans la zone (état `working` avec `interact-right` debout, sans `sit`). Le rang est attribué à l'entrée (première place libre de la zone, stable par `agent.id`). Au-delà de 3, le bonhomme prend la dernière place (superposition acceptée : la configuration par défaut a `maxParallelDevs: 3`).
+  - **Station inconnue ou changeante** : un agent dont la station est `null` (architecte sans mode connu) prend une place de la salle de réunion (`cadrage`). La place est fixée à l'entrée : un `agent-move` pendant la présence ne déplace pas le bonhomme, et la nouvelle station ne compte qu'à la prochaine entrée.
+  - **Interruptions** : chaque changement de phase calcule l'état cible **depuis la position courante**. Un `finished` reçu pendant `entering` fait demi-tour vers la porte. Une reprise pendant `leaving` ou `gone` relance `entering` vers le **même** poste s'il est libre. Tout autre changement de phase reçu pendant une marche (`reported`, `unknown`) est mis en attente et appliqué à l'arrivée : la bulle de verdict dure alors 4 s à partir de l'arrivée. La file garde au plus une transition en attente, la dernière reçue, ce qui évite les à-coups.
   - **Bulle de verdict** : affichée 4 s, puis le bonhomme se rassied tant que la phase reste `reported`.
   - **Dossier** : visible sur le poste quand `issue` est connu, avec l'étiquette `#N`.
-  - **Chef de projet** : toujours `working` à son bureau. Il joue `interact-right` une fois par `feature.status` ou `pr.merged` reçu, au plus un geste par seconde.
+  - **Chef de projet** : toujours présent et `working` à son bureau, mais au repos il est assis **sans taper** (`sit`) : sinon le geste se confondrait avec la frappe des autres agents. Il joue `interact-right` une fois (un cycle du clip, puis retour à `sit`) par transition `feature-move`, `feature-status`, ou `release` vers `merged` renvoyée par `state.js` (traces des `feature.status` et `pr.merged` du journal), au plus un geste par seconde ; les transitions en excès sont ignorées, sans file. `crew.js` ne lit que les transitions : `state.js` n'est pas modifié.
   - **Réduction de mouvement** : pas de marche ; l'état passe directement à l'état final (`working` au poste, ou `gone`). Les clips sont figés sur leur première image, et seules les bulles et les dossiers changent.
 - **`characters.js` (rendu)** : il ne décide rien. Il clone les modèles (`SkeletonUtils.clone`), crée un `AnimationMixer` par bonhomme, applique position, cap et clip décidés par `crew.js`, avec un fondu croisé de 0,2 s entre clips (`crossFadeTo`). Il dessine aussi les bulles et les dossiers. Le texte passe toujours par `textContent`.
 - **`motion.js`** garde les courbes et les fondus. On n'ajoute pas de bibliothèque de tween.
@@ -64,6 +66,7 @@ Aucune brique existante ne donne ce comportement, qui encode le workflow gepet-s
   - la reprise après `finished` ;
   - `finished` pendant `entering` ;
   - le poste supplémentaire ;
+  - les occupants simultanés d'une zone à occupant unique, et la station `null` ;
   - la réduction de mouvement ;
   - le plafond de 3 s.
 - `characters.js` est testé sous Node avec les crochets `three-register.mjs` et un faux chargeur : clips joués et objets ajoutés ou retirés, sans WebGL.

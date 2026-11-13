@@ -51,7 +51,7 @@ Le reste de la chaîne ne change pas : collecteur, journal, serveur, contrat `/s
 
 - **Repli** : si un asset ne se charge pas, la vue reste utilisable. Un bonhomme manquant est remplacé par une capsule colorée par type, un meuble manquant est simplement omis, et un avertissement est affiché par `ui.js`. Sans WebGL, le repli texte actuel s'applique sans changement.
 - **Tests** (complète l'ADR 0006) :
-  - **unitaires** sur les modules purs `office-layout`, `paths`, `crew`, `assets` et `motion`, ajoutés à `tests/viz-web/purity.test.mjs` ;
+  - **unitaires** sur les modules purs `office-layout`, `paths`, `crew`, `assets` et `motion`. Leur pureté est contrôlée par le helper `assertPure` de `tests/viz-web/support.mjs` (logique reprise de `purity.test.mjs`), appelé depuis le fichier de test de chaque module, pour que ces modules puissent être développés en parallèle ;
   - **intégration** : lecture des GLB vendorés sous Node (ADR 0010), et `scene.js` et `characters.js` chargés sous Node avec les crochets existants (`three-register.mjs`) et un faux chargeur, sans WebGL ;
   - **smoke manuel** dans le navigateur, documenté dans la PR. Il couvre trois points :
     - un agent entre, travaille, rend son verdict et sort ;
@@ -71,5 +71,5 @@ Le reste de la chaîne ne change pas : collecteur, journal, serveur, contrat `/s
 
 - Le contrat `/state`, le schéma d'événements v1 et le réducteur ne changent pas. Le scope `hooks` n'est pas touché, et `viz-server` ne reçoit que le type MIME `.glb` (ADR 0010).
 - Les tests `layout`, `scene`, `agents` et `motion` sont réécrits ou adaptés. `stations-parity` et `state` ne bougent pas.
-- La version 0.8.0 (milestone M5) est portée par la dernière feature du milestone, comme pour les milestones précédents.
+- La migration se fait en deux milestones, chacun versionné par sa dernière feature, comme pour les milestones précédents : **0.8.0** (M5) livre le décor et le kanban, les agents restant provisoirement des sphères placées dans leur zone ; **0.9.0** (M6) livre les bonhommes et retire `agents.js`, `layout.js` et le bloom.
 - Ajouter une station ou un type d'agent demande désormais une zone dans `office-layout.js` et un modèle dans `assets.js`.

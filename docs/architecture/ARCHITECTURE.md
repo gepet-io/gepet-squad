@@ -259,7 +259,9 @@ Détail dans l'[ADR 0003](adr/0003-journal-evenements-et-etat-fusionne.md).
   | `merge`, `release` | — | — | oui |
   | `escalade` | Salle de réunion éclairée en rouge | Architecte `ESCALADE` | oui (rouge) |
 
-  Le chef de projet est toujours présent à son bureau. Il fait un geste à chaque `feature.status` ou `pr.merged` du journal. Le comportement des bonhommes en fonction de la `phase` est décrit dans l'[ADR 0011](adr/0011-animation-scriptee-des-bonhommes.md).
+  Plusieurs agents du même rôle peuvent être actifs en même temps (features en parallèle) : chaque zone à occupant unique offre 3 places, et un architecte sans mode connu va en salle de réunion ([ADR 0011](adr/0011-animation-scriptee-des-bonhommes.md)).
+
+  Le chef de projet est toujours présent à son bureau. Il fait un geste à chaque changement de feature ou de release que `state.js` signale (transitions `feature-move`, `feature-status`, ou `release` vers `merged`), c'est-à-dire aux `feature.status` et `pr.merged` du journal qui modifient l'état. Le comportement des bonhommes en fonction de la `phase` est décrit dans l'[ADR 0011](adr/0011-animation-scriptee-des-bonhommes.md).
 - **Données personnelles** : uniquement des logins GitHub et des titres d'issues, déjà présents sur le repo. Aucune sauvegarde n'est nécessaire, car GitHub permet de tout reconstruire.
 
 ## 7. Sécurité
@@ -350,7 +352,7 @@ Le niveau retenu est celui d'un **outil local mono-utilisateur, en lecture seule
   - côté front, si WebGL est indisponible, on affiche une liste texte des statuts ;
   - si un asset ne se charge pas, la vue reste utilisable. Un bonhomme est remplacé par une capsule colorée par type, un meuble est omis, et `ui.js` affiche un avertissement.
 - **Fixtures** : les payloads de hooks réels sont capturés une fois avec `claude --debug-file`, puis anonymisés dans `tests/fixtures/hooks/`. Chaque type d'événement doit avoir au moins une fixture réelle.
-- **Commits** : Conventional Commits en français (`feat(viz-server): …`), comme l'historique actuel. Bump semver dans `.claude-plugin/plugin.json` et une entrée dans `CHANGELOG.md` par changement de comportement. Chaque milestone donne lieu à un bump mineur, porté par sa dernière feature : **0.2.0** (M1, collecte), **0.3.0** (M2, serveur), **0.4.0** (M3, vue 3D et commande), **0.8.0** (M5, bureau 3D). Aucune autre feature ne touche `plugin.json` ni `CHANGELOG.md`.
+- **Commits** : Conventional Commits en français (`feat(viz-server): …`), comme l'historique actuel. Bump semver dans `.claude-plugin/plugin.json` et une entrée dans `CHANGELOG.md` par changement de comportement. Chaque milestone donne lieu à un bump mineur, porté par sa dernière feature : **0.2.0** (M1, collecte), **0.3.0** (M2, serveur), **0.4.0** (M3, vue 3D et commande), **0.6.0** (M4, économie de tokens), **0.8.0** (M5, bureau et kanban, agents encore en sphères), **0.9.0** (M6, bonshommes animés, retrait du bloom). Aucune autre feature ne touche `plugin.json` ni `CHANGELOG.md`.
 - **Binaires** : `.gitattributes` déclare `*.glb binary` et `*.png binary`, que la règle `* text=auto eol=lf` ne doit pas convertir.
 - **Stratégie de tests** : voir l'[ADR 0006](adr/0006-strategie-de-tests.md).
 
