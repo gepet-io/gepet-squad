@@ -23,13 +23,13 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { CSS2DObject } from "three/addons/renderers/CSS2DRenderer.js";
 import { clone as cloneSkinned } from "three/addons/utils/SkeletonUtils.js";
 
-import { ASSETS } from "./assets.js";
+import { ASSETS, SIT_LIFT } from "./assets.js";
 import { stepCrew } from "./crew.js";
 import { agentColor } from "./motion.js";
 import { DEFAULT_DEV_SEATS, devSeat, seatFor } from "./office-layout.js";
 
 export const FADE_SECONDS = 0.2; // fondu croisé entre deux clips
-const BUBBLE_LIFT = 1.45; // hauteur de la bulle au-dessus du sol
+const BUBBLE_LIFT = 1.9; // hauteur de la bulle au-dessus du sol
 const FOLDER = { width: 0.34, height: 0.04, depth: 0.25, color: 0xd9b45b, ahead: 0.6, side: 0.5, lift: 0.03 };
 const DESK_TOP = 0.75;
 const EXTRA_SEAT_FURNITURE = ["desk", "chairDesk", "computerScreen", "computerKeyboard"];
@@ -334,7 +334,7 @@ export function createCharacters(
       }
       if (rec.visual && rec.modelPath !== (b.model?.path ?? null)) dropVisual(rec); // autre modèle (poste réattribué à la reprise)
       if (!rec.visual) buildVisual(rec, b);
-      rec.group.position.set(b.position.x, b.position.y, b.position.z);
+      rec.group.position.set(b.position.x, b.position.y + (rec.template && b.clip === "sit" ? SIT_LIFT : 0), b.position.z);
       rec.group.rotation.y = b.heading;
       play(rec, b.clip, b.frozen === true);
       syncBubble(rec, b.bubble);
