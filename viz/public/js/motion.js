@@ -1,15 +1,13 @@
 // Tout ce que l'animation décide, sous forme de fonctions pures : courbes et durées des déplacements de features,
-// couleur et opacité des agents lumineux, pulsation, badges de retry, réglages du bloom. Module pur : aucun import de
-// `three`, aucun DOM, ni hasard ni horloge (le temps est toujours un argument, en secondes). `scene.js` et `agents.js`
+// couleur par type d'agent, badges de retry. Module pur : aucun import de
+// `three`, aucun DOM, ni hasard ni horloge (le temps est toujours un argument, en secondes). `scene.js` et `characters.js`
 // (qui importent `three`) ne font que dessiner ce que ce module calcule (ADR 0006, 0007). Pas de bibliothèque de tween :
 // une interpolation est une donnée (départ, arrivée, début, durée, courbe) que l'on échantillonne à chaque image.
 //
 // Réduction de mouvement : toutes les fonctions qui animent prennent `reduced` ; vrai, elles donnent directement
-// l'état final (déplacement immédiat, fondu immédiat) et la pulsation est nulle.
+// l'état final (déplacement immédiat).
 //
 // Les positions sont de simples objets { x, y, z } (c'est `scene.js` qui les convertit en `Vector3`).
-
-import { approach } from "./view-model.js";
 
 // --- Courbes ---------------------------------------------------------------------------------------------------------
 
@@ -109,9 +107,9 @@ export function sampleTracks(tracks, targets, now) {
   return { positions, tracks: running, moving: running.size > 0 };
 }
 
-// --- Agents : couleur, opacité, pulsation ----------------------------------------------------------------------------
+// --- Agents : couleur par type ---------------------------------------------------------------------------------------
 
-// Couleur d'émission par type d'agent. Volontairement hors de la palette des statuts (view-model.js) : magenta, cyan,
+// Couleur par type d'agent. Volontairement hors de la palette des statuts (view-model.js) : magenta, cyan,
 // citron vert et orange vif, d'écart de couleur (ΔE) mesuré avec chaque statut par tests/viz-web/motion.test.mjs.
 export const AGENT_COLORS = Object.freeze({
   architecte: 0xff4fd8,
@@ -123,87 +121,6 @@ export const AGENT_DEFAULT_COLOR = 0xa0a8b5;
 
 export function agentColor(type) {
   return Object.prototype.hasOwnProperty.call(AGENT_COLORS, type) ? AGENT_COLORS[type] : AGENT_DEFAULT_COLOR;
-}
-
-// Luminance relative (0..1) d'une couleur 0xRRGGBB sRGB.
-export function luminance(hex) {
-  const channel = (shift) => {
-    const c = ((hex >> shift) & 255) / 255;
-    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-  };
-  return 0.2126 * channel(16) + 0.7152 * channel(8) + 0.0722 * channel(0);
-}
-
-// Le bloom ne retient que ce qui dépasse `threshold` : une entité lumineuse est rendue en HDR, avec un facteur qui
-// ramène sa luminance à GLOW_LUMINANCE quelle que soit sa teinte. Le décor éclairé reste sous le seuil.
-export const BLOOM = Object.freeze({ strength: 0.9, radius: 0.55, threshold: 2.4 });
-export const GLOW_LUMINANCE = 4;
-
-export function glowScale(hex, target = GLOW_LUMINANCE) {
-  return target / Math.max(luminance(hex), 0.05);
-}
-
-// Aspect d'un agent selon sa phase : opacité visée et amplitude de la pulsation (part du rayon).
-//   requested : demandé, pas encore démarré (estompé, hésitant)   running : au travail
-//   reported  : a rendu son rapport (se calme)                    finished : disparaît en fondu
-//   unknown   : plus de signal depuis longtemps (atténué, sans pulsation)
-export const AGENT_LOOKS = Object.freeze({
-  requested: { opacity: 0.65, pulse: 0.1 },
-  running: { opacity: 1, pulse: 0.18 },
-  reported: { opacity: 0.9, pulse: 0.06 },
-  finished: { opacity: 0, pulse: 0 },
-  unknown: { opacity: 0.3, pulse: 0 },
-});
-
-// { opacity, pulse } d'une phase ; une phase inconnue est traitée comme `unknown`. Sans mouvement : pas de pulsation.
-export function agentLook(phase, { reduced = false } = {}) {
-  const look = Object.prototype.hasOwnProperty.call(AGENT_LOOKS, phase) ? AGENT_LOOKS[phase] : AGENT_LOOKS.unknown;
-  return { opacity: look.opacity, pulse: reduced ? 0 : look.pulse };
-}
-
-export const PULSE_PERIOD_SECONDS = 1.6;
-export const FADE_SECONDS = 1;
-export const AGENT_FOLLOW_RATE = 5;
-export const INVISIBLE = 0.01;
-
-// Décalage de phase (radians) propre à un agent, pour que plusieurs agents ne battent pas à l'unisson.
-export function pulseOffset(id) {
-  let hash = 0;
-  for (const char of String(id)) hash = (hash * 31 + char.charCodeAt(0)) % 100003;
-  return (hash / 100003) * 2 * Math.PI;
-}
-
-// Facteur d'échelle d'un agent à l'instant `elapsed` (secondes) : 1 ± amplitude, jamais négatif.
-export function pulseScale(amplitude, elapsed, offset = 0) {
-  if (!(amplitude > 0)) return 1;
-  return 1 + amplitude * Math.sin((2 * Math.PI * elapsed) / PULSE_PERIOD_SECONDS + offset);
-}
-
-// Opacité après `dt` secondes : va vers `target` à vitesse constante (un fondu complet dure FADE_SECONDS), sans le
-// dépasser. Avec `reduced`, elle y est tout de suite.
-export function fadeStep(current, target, dt, { reduced = false } = {}) {
-  if (reduced || !(dt > 0)) return reduced ? target : current;
-  const step = dt / FADE_SECONDS;
-  return current < target ? Math.min(current + step, target) : Math.max(current - step, target);
-}
-
-// Opacité d'un agent à son apparition : il s'allume en fondu (0), sauf s'il est déjà à sa valeur finale (terminé) ou si
-// l'utilisateur demande moins de mouvement.
-export function initialOpacity(phase, { reduced = false } = {}) {
-  const target = agentLook(phase).opacity;
-  return reduced || target === 0 ? target : 0;
-}
-
-// Un agent terminé dont le fondu est achevé n'est plus dessiné.
-export function agentVisible(phase, opacity) {
-  return !(phase === "finished" && opacity <= INVISIBLE);
-}
-
-// Position d'un agent qui suit sa cible (la feature qu'il traite, qui se déplace elle-même) : rapprochement
-// exponentiel indépendant de la cadence ; immédiat avec `reduced`.
-export function followPoint(current, target, dt, { reduced = false, rate = AGENT_FOLLOW_RATE } = {}) {
-  if (reduced) return copyPoint(target);
-  return { x: approach(current.x, target.x, dt, rate), y: approach(current.y, target.y, dt, rate), z: approach(current.z, target.z, dt, rate) };
 }
 
 // --- Badges de retry -------------------------------------------------------------------------------------------------

@@ -64,7 +64,7 @@ describe("décor : murs, sol, plus de stations abstraites", () => {
     assert.ok(api.scene.children.includes(api.decor));
   });
 
-  test("les stations abstraites (volumes à arêtes) et les files de features de layout.js ne sont plus dessinées", () => {
+  test("les stations abstraites (volumes à arêtes) et les files de features de l.ancien pipeline ne sont plus dessinées", () => {
     const { api } = setup();
     let edges = 0;
     let groups = 0;
@@ -507,6 +507,14 @@ describe("points d'extension : onFrame, addLayer, onUpdate", () => {
     api.frame(1000);
     assert.equal(rendersSeenByCallback, 0);
     assert.equal(renderer.renders, 1);
+  });
+
+  test("le rendu passe toujours par renderer.render : plus de setRender (le bloom est retiré)", () => {
+    const { api, renderer } = setup();
+    assert.equal(api.setRender, undefined);
+    api.frame(1000);
+    api.frame(1016);
+    assert.equal(renderer.renders, 2);
   });
 
   test("addLayer ajoute un objet à la scène, et la fonction renvoyée le retire", () => {

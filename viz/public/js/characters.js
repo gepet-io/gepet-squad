@@ -1,5 +1,5 @@
 // Bonhommes du bureau (ADR 0011) : un petit personnage Kenney animé par agent du modèle, plus le chef de projet, avec sa
-// bulle de verdict et le dossier posé sur son poste. Remplace les sphères d'`agents.js` (et le bloom qui les faisait briller).
+// bulle de verdict et le dossier posé sur son poste. Remplace les sphères lumineuses de l'ancien pipeline (et le bloom qui les faisait briller).
 //
 // Ce module dessine, il ne décide rien (ADR 0006 et 0011) : poste, modèle, état, clip, position, cap, bulle et dossier
 // viennent de `crew.js` (`stepCrew`), le manifeste de `assets.js`, la couleur des capsules de repli de `motion.js`. Ici :
