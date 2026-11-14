@@ -35,6 +35,17 @@
       "npm run lint",
       "npm test",
       "bash -n scripts/bootstrap.sh",
+      "bash -n scripts/vendor-assets.sh",
+      "bash -n scripts/vendor-three.sh"
+    ]
+  },
+  "ci": {
+    "mode": "local",
+    "commands": [
+      "npm ci",
+      "npm run lint",
+      "npm test",
+      "bash -n scripts/bootstrap.sh",
       "bash -n scripts/vendor-three.sh",
       "bash -n scripts/vendor-assets.sh"
     ]

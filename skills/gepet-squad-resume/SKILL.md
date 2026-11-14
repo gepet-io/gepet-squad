@@ -45,4 +45,4 @@ Aucun agent de la session précédente ne tourne plus. Pour chaque issue ouverte
 
 ## 3. Annoncer puis continuer
 
-Présente à l'utilisateur, en quelques lignes : la phase, le milestone courant, ce qui est livré, ce qui est en cours et ce qui va être relancé. Applique ensuite la consigne éventuelle, puis poursuis le workflow de `gepet-squad/SKILL.md` à partir de la phase déduite.
+Présente à l'utilisateur, en quelques lignes : la phase, le milestone courant, ce qui est livré, ce qui est en cours et ce qui va être relancé. Si `.gepet-squad.json` contient `ci.mode` = `local`, ajoute une ligne : « CI locale : les contrôles `ci.commands` remplacent GitHub Actions ». Applique ensuite la consigne éventuelle, puis poursuis le workflow de `gepet-squad/SKILL.md` à partir de la phase déduite.

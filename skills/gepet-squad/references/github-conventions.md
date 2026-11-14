@@ -21,6 +21,18 @@ Créé par le bootstrap à la racine du repo principal et versionné sur `develo
 
 Clé optionnelle `"graphify": { "enabled": true }` : active le graphe de connaissances du code (voir `graphify.md`). `graphify-out/` n'est jamais versionné.
 
+Clé optionnelle `"ci": { "mode": "github" | "local", "commands": ["…"] }` : elle règle où tournent les contrôles de qualité.
+
+- Clé absente ou `"mode": "github"` : comportement par défaut, la CI est un workflow GitHub Actions.
+- `"mode": "local"` : **aucune exécution GitHub Actions** (quotas épuisés, CI désactivée). `commands` est la liste **ordonnée** des contrôles (installation, lint, build, tests, vérifications de scripts), lancés **à la racine du repo**. Le développeur les exécute avant sa PR, le testeur les rejoue sur la PR fusionnée avec `develop` et sert de barrière à la place de la CI, le Chef de projet les rejoue sur `develop` avant la PR de release. Aucun agent ne crée, n'attend ni ne réactive de workflow.
+
+```json
+"ci": {
+  "mode": "local",
+  "commands": ["npm ci", "npm run lint", "npm test", "bash -n scripts/bootstrap.sh"]
+}
+```
+
 En **multi-repo**, `layout` vaut `"multirepo"` et chaque scope porte son propre repo : `"stock-api": { "repo": "owner/stock-api", "path": "." }`. Le repo principal (« hub ») contient alors l'architecture, la roadmap, les milestones et **toutes les issues**. Les sous-repos ne contiennent que le code et suivent eux aussi le cycle `develop` / `release/*` / `main`. Les PR des sous-repos référencent l'issue du hub sous la forme `owner/projet#12`.
 
 ## Branches
@@ -104,6 +116,7 @@ Closes #<n>
 ## Vérifications
 - Suite complète sur `develop` : <résultat>
 - Rapports de vérification et de tests : PASS sur toutes les PR
+- (seulement si `ci.mode` vaut `local`) CI locale sur develop : <N>/<N> commandes OK
 
 ## À faire par l'utilisateur
 Relire, puis merger cette PR sur `main`.
