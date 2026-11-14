@@ -22,16 +22,6 @@ ADDONS=(
   utils/SkeletonUtils.js
   utils/BufferGeometryUtils.js
   renderers/CSS2DRenderer.js
-  postprocessing/EffectComposer.js
-  postprocessing/RenderPass.js
-  postprocessing/ShaderPass.js
-  postprocessing/UnrealBloomPass.js
-  postprocessing/OutputPass.js
-  postprocessing/Pass.js
-  postprocessing/MaskPass.js
-  shaders/CopyShader.js
-  shaders/LuminosityHighPassShader.js
-  shaders/OutputShader.js
 )
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

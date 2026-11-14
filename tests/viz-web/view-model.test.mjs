@@ -5,7 +5,6 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 
 import { init } from "../../viz/public/js/state.js";
-import { layoutFeatures, stationBoxes, escaladeBoxes } from "../../viz/public/js/layout.js";
 import { OFFICE, kanbanLayout } from "../../viz/public/js/office-layout.js";
 import {
   STATUS_COLORS,
@@ -31,7 +30,7 @@ import {
 import { feature, stateOf } from "./support.mjs";
 
 const modelOf = (features, extra = {}) => init(stateOf({ features, ...extra }));
-const instancesOf = (model) => featureInstances(model, layoutFeatures(model));
+const instancesOf = (model) => featureInstances(model, kanbanPositions(kanbanLayout(model)));
 
 describe("couleurs des statuts", () => {
   // Palette de skills/gepet-squad/references/github-conventions.md : la source de vérité est ce fichier.
@@ -111,8 +110,8 @@ describe("featureInstances et featureForInstance (instance -> feature)", () => {
     ]);
   });
 
-  test("chaque instance porte la position et la station calculées par layout.js", () => {
-    const positions = layoutFeatures(model);
+  test("chaque instance porte la position et la colonne calculées par kanbanLayout", () => {
+    const positions = kanbanPositions(kanbanLayout(model));
     for (const instance of featureInstances(model, positions)) {
       const p = positions.get(instance.number);
       assert.deepEqual(instance.position, { x: p.x, y: p.y, z: p.z });
@@ -123,9 +122,9 @@ describe("featureInstances et featureForInstance (instance -> feature)", () => {
 
   test("une feature bloquée est dans la zone d'escalade, les autres dans leur station", () => {
     const byNumber = Object.fromEntries(instancesOf(model).map((i) => [i.number, i]));
-    assert.equal(byNumber[20].zone, "escalade");
+    assert.equal(byNumber[20].station, "escalade");
     assert.equal(byNumber[20].escalated, true);
-    assert.equal(byNumber[30].zone, "station");
+    assert.equal(byNumber[30].zone, "kanban");
     assert.equal(byNumber[30].station, "verification");
     assert.equal(byNumber[10].station, "roadmap");
   });
@@ -139,8 +138,8 @@ describe("featureInstances et featureForInstance (instance -> feature)", () => {
     assert.equal(featureForInstance([], 0), null);
   });
 
-  test("une feature sans place dans le layout n'est pas une instance", () => {
-    const positions = layoutFeatures(model);
+  test("une feature sans place dans le kanban n'est pas une instance", () => {
+    const positions = kanbanPositions(kanbanLayout(model));
     positions.delete(30);
     assert.deepEqual(featureInstances(model, positions).map((i) => i.number), [10, 20, 40]);
   });
@@ -232,7 +231,15 @@ describe("géométrie de la vue", () => {
     assert.equal(toNdc(1, 1, null), null);
   });
 
-  const boxes = [...stationBoxes(), ...escaladeBoxes()];
+  // Emprise d’un ancien pipeline : 7 stations de 18 de large espacées de 8, avec une zone d’escalade de 8 de profondeur derrière
+  // chacune (à 3 d’écart). Une simple donnée pour sceneBounds et fitCamera, qui travaillent sur des boîtes { x, y, z, width, depth, height }.
+  const boxes = Array.from({ length: 7 }, (_, i) => {
+    const x = (i - 3) * 26;
+    return [
+      { x, y: 0, z: 0, width: 18, depth: 16, height: 6 },
+      { x, y: 0, z: -15, width: 18, depth: 8, height: 0.2 },
+    ];
+  }).flat();
 
   test("sceneBounds couvre toutes les boîtes (7 stations de 18 + 6 écarts de 8 = 174 de large)", () => {
     const b = sceneBounds(boxes);

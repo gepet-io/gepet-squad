@@ -332,7 +332,7 @@ describe("horloge (tick)", () => {
 describe("bonhommes", () => {
   const source = fs.readFileSync(new URL("../../viz/public/js/main.js", import.meta.url), "utf8");
 
-  test("main.js charge characters.js à la place d'agents.js : plus de sphères ni de bloom", () => {
+  test("main.js charge characters.js : plus de sphères ni de bloom", () => {
     assert.match(source, /import\("\.\/characters\.js"\)/);
     assert.match(source, /createCharacters\(scene/);
     assert.doesNotMatch(source, /agents\.js|createAgents|loadAgents/);

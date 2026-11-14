@@ -39,16 +39,6 @@ const EXPECTED_FILES = [
   "addons/utils/SkeletonUtils.js",
   "addons/utils/BufferGeometryUtils.js",
   "addons/renderers/CSS2DRenderer.js",
-  "addons/postprocessing/EffectComposer.js",
-  "addons/postprocessing/RenderPass.js",
-  "addons/postprocessing/ShaderPass.js",
-  "addons/postprocessing/UnrealBloomPass.js",
-  "addons/postprocessing/OutputPass.js",
-  "addons/postprocessing/Pass.js",
-  "addons/postprocessing/MaskPass.js",
-  "addons/shaders/CopyShader.js",
-  "addons/shaders/LuminosityHighPassShader.js",
-  "addons/shaders/OutputShader.js",
 ];
 
 // Points d'entrée : ce que le front importera. Tout le reste doit être atteignable depuis eux.
@@ -58,10 +48,6 @@ const ENTRY_POINTS = [
   "addons/loaders/GLTFLoader.js",
   "addons/utils/SkeletonUtils.js",
   "addons/renderers/CSS2DRenderer.js",
-  "addons/postprocessing/EffectComposer.js",
-  "addons/postprocessing/RenderPass.js",
-  "addons/postprocessing/UnrealBloomPass.js",
-  "addons/postprocessing/OutputPass.js",
 ];
 
 /** Tous les fichiers sous `dir`, en chemins relatifs avec `/`, triés. */
@@ -184,12 +170,11 @@ describe("résolution des imports (importmap de l'ADR 0002)", () => {
     assert.deepEqual(errors, []);
   });
 
-  test("les imports sont réellement parcourus (three.core.js et les shaders sont atteints)", () => {
+  test("les imports sont réellement parcourus (three.core.js et BufferGeometryUtils.js sont atteints)", () => {
     const { visited } = walkImports(entries, PUBLIC_DIR, IMPORTMAP);
     const reached = [...visited].map((file) => path.relative(VENDOR_DIR, file).split(path.sep).join("/"));
     assert.ok(reached.includes("build/three.core.js"), "three.core.js doit être atteint via three.module.js");
-    assert.ok(reached.includes("addons/shaders/CopyShader.js"));
-    assert.ok(reached.includes("addons/postprocessing/MaskPass.js"));
+    assert.ok(reached.includes("addons/utils/BufferGeometryUtils.js"), "BufferGeometryUtils.js doit être atteint via GLTFLoader.js");
   });
 
   test("tous les fichiers JavaScript vendorés sont atteignables depuis les points d'entrée", () => {
@@ -205,8 +190,8 @@ describe("résolution des imports (importmap de l'ADR 0002)", () => {
     assert.deepEqual(resolveSpecifier("three", orbit, PUBLIC_DIR, IMPORTMAP), {
       file: path.join(VENDOR_DIR, "build/three.module.js"),
     });
-    assert.deepEqual(resolveSpecifier("three/addons/shaders/CopyShader.js", orbit, PUBLIC_DIR, IMPORTMAP), {
-      file: path.join(VENDOR_DIR, "addons/shaders/CopyShader.js"),
+    assert.deepEqual(resolveSpecifier("three/addons/utils/BufferGeometryUtils.js", orbit, PUBLIC_DIR, IMPORTMAP), {
+      file: path.join(VENDOR_DIR, "addons/utils/BufferGeometryUtils.js"),
     });
   });
 });
@@ -352,8 +337,15 @@ describe("addons de chargement glTF (ADR 0010)", () => {
 
   test("three reste en 0.187.0 et les addons existants sont toujours présents", () => {
     assert.equal(fs.readFileSync(path.join(VENDOR_DIR, "VERSION"), "utf8"), `0.187.0${"\n"}`);
-    for (const file of ["addons/controls/OrbitControls.js", "addons/postprocessing/EffectComposer.js"]) {
+    for (const file of ["addons/controls/OrbitControls.js", "addons/loaders/GLTFLoader.js", "addons/renderers/CSS2DRenderer.js"]) {
       assert.ok(fs.existsSync(path.join(VENDOR_DIR, file)), `${file} doit rester vendoré`);
     }
+  });
+
+  test("le bloom est retiré : ni postprocessing/, ni les shaders CopyShader, LuminosityHighPassShader et OutputShader, ni dans le script", () => {
+    assert.ok(!fs.existsSync(path.join(VENDOR_DIR, "addons/postprocessing")), "addons/postprocessing/ ne doit plus exister");
+    assert.ok(!fs.existsSync(path.join(VENDOR_DIR, "addons/shaders")), "addons/shaders/ ne doit plus exister");
+    const script = fs.readFileSync(new URL("../../scripts/vendor-three.sh", import.meta.url), "utf8");
+    assert.doesNotMatch(script, /postprocessing\/|CopyShader|LuminosityHighPassShader|OutputShader/);
   });
 });
