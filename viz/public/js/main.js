@@ -223,21 +223,26 @@ export async function boot(doc = globalThis.document, win = globalThis.window, {
 }
 
 /**
- * Ajoute à la scène les agents lumineux (agents.js, chargé à la demande). Couche facultative : si elle échoue, la scène
- * reste affichée, sans agents, et l'erreur est signalée dans la console.
+ * Ajoute à la scène les bonhommes (characters.js, chargé à la demande). Couche facultative : si elle échoue, la scène reste
+ * affichée, sans bonhommes, et l'erreur est signalée dans la console. Les fichiers qui ne se chargent pas sont signalés
+ * par l'avertissement de la page (`ui.js`).
  * @param {object} scene la valeur renvoyée par `createScene`
  * @param {Window} win
+ * @param {Document} doc
  */
-export async function loadAgents(scene, win = globalThis.window) {
+export async function loadCharacters(scene, win = globalThis.window, doc = globalThis.document) {
   try {
-    const { createAgents } = await import("./agents.js");
-    createAgents(scene);
+    const { createCharacters } = await import("./characters.js");
+    createCharacters(scene, {
+      document: doc,
+      onAssetsFailed: (count) => ui.showAssetsWarning(doc.getElementById("avertissement"), count),
+    });
   } catch (error) {
-    win.console.warn(`[gepet-squad-viz] agents lumineux indisponibles : ${error.message}`);
+    win.console.warn(`[gepet-squad-viz] bonhommes indisponibles : ${error.message}`);
   }
 }
 
 // Dans le navigateur uniquement : un `import` sous Node (tests) ne lance rien.
 if (typeof document !== "undefined" && typeof window !== "undefined") {
-  boot(document, window, { onScene: (scene) => loadAgents(scene, window) }).catch((error) => console.error(`[gepet-squad-viz] ${error.message}`));
+  boot(document, window, { onScene: (scene) => loadCharacters(scene, window, document) }).catch((error) => console.error(`[gepet-squad-viz] ${error.message}`));
 }
