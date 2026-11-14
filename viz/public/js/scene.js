@@ -14,14 +14,12 @@
 // `feature-move` glisse d'une colonne à l'autre, une colonne qui se réarrange glisse plus brièvement. Avec
 // `prefers-reduced-motion: reduce`, le déplacement est immédiat.
 //
-// Points d'extension pour les couches suivantes (agents : agents.js ; étiquettes : labels.js), sans toucher à main.js :
+// Points d'extension pour les couches suivantes (bonhommes : characters.js ; étiquettes : labels.js), sans toucher à main.js :
 //   scene.onFrame(cb)    cb(delta, elapsed) à chaque image : secondes depuis l'image précédente (au plus 0,1), secondes
 //                        depuis le démarrage de la boucle. Renvoie une fonction qui retire le rappel.
 //   scene.addLayer(obj)  ajoute un objet Three.js à la scène. Renvoie une fonction qui le retire.
 //   scene.onUpdate(cb)   cb(model, transitions) à chaque mise à jour du modèle, pour qui a besoin des données.
 //   scene.onResize(cb)   cb(width, height) quand la taille de la vue change.
-//   scene.setRender(fn)  remplace le rendu de chaque image (`renderer.render`) par `fn(delta)`, par exemple un
-//                        `EffectComposer`. Renvoie une fonction qui rétablit le rendu par défaut.
 //   scene.size()         { width, height } courants de la vue.
 //   scene.model()        le dernier modèle reçu par `update`, ou `null` (pour une couche ajoutée après la première mise à jour).
 //   scene.reducedMotion()  vrai si l'utilisateur demande moins de mouvement (`prefers-reduced-motion: reduce`, relu à
@@ -350,7 +348,6 @@ function buildScene({ container, win, renderer, createControls, loadModel, onAss
 
   // --- Boucle de rendu -----------------------------------------------------------------------------------------------------
   const frameListeners = new Set();
-  let renderFrame = null;
   let last = null;
   function frame(timeMs) {
     const delta = last === null ? 0 : Math.min(Math.max((timeMs - last) / 1000, 0), MAX_FRAME_DELTA);
@@ -366,8 +363,7 @@ function buildScene({ container, win, renderer, createControls, loadModel, onAss
       dirty = sampled.moving;
     }
     for (const cb of [...frameListeners]) cb(delta, timeMs / 1000);
-    if (renderFrame !== null) renderFrame(delta);
-    else renderer.render(scene, camera);
+    renderer.render(scene, camera);
   }
   // En dernier : une construction qui échoue plus haut n'a encore rien branché sur la fenêtre.
   win?.addEventListener?.("resize", onWindowResize);
@@ -411,12 +407,6 @@ function buildScene({ container, win, renderer, createControls, loadModel, onAss
       scene.add(object);
       return () => scene.remove(object);
     },
-    setRender(fn) {
-      renderFrame = fn;
-      return () => {
-        if (renderFrame === fn) renderFrame = null;
-      };
-    },
     size: () => ({ ...viewSize }),
     model: () => latestModel,
     reducedMotion,
@@ -424,7 +414,6 @@ function buildScene({ container, win, renderer, createControls, loadModel, onAss
       disposed = true;
       renderer.setAnimationLoop(null);
       win?.removeEventListener?.("resize", onWindowResize);
-      renderFrame = null;
       frameListeners.clear();
       updateListeners.clear();
       resizeListeners.clear();

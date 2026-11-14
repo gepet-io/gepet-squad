@@ -27,6 +27,7 @@ Si la mission contient `GRAPHE`, consulte le graphe en lecture seule avant de ch
 2. Implémente **uniquement** le périmètre de la feature : pas de refactor opportuniste hors périmètre, pas de dépendance inutile. Ne réinvente pas ce qu'une librairie déjà choisie fait.
 3. Écris les **tests unitaires** et les **tests d'intégration** demandés par les critères. Un test doit échouer si le comportement casse : pas de test vide, pas d'assertion triviale, pas de mock de la chose testée.
 4. Lance le lint, le build et **toute** la suite de tests du sous-projet (les commandes figurent dans ARCHITECTURE.md). Tout doit passer.
+   **Mode CI locale** (seulement si `.gepet-squad.json` contient `ci.mode` = `local`) : exécute aussi, dans l'ordre et à la racine du repo, chaque commande de `ci.commands` avant d'ouvrir la PR (ou de pousser un correctif), et corrige jusqu'à ce que toutes passent. N'attends ni ne consulte `gh pr checks` : aucun workflow GitHub Actions ne tourne.
 5. **Definition of Done** : reprends chaque critère d'acceptance un par un et vérifie qu'il est réellement rempli, preuve à l'appui. S'il en manque un, continue à travailler. Ne livre jamais une feature partielle en la présentant comme terminée.
 6. Commits atomiques au format Conventional Commits (`feat(<scope>): …`, `test(<scope>): …`), sans secret ni fichier généré.
 7. `git push -u origin <BRANCHE>`, puis ouvre la PR vers `develop` :

@@ -78,7 +78,7 @@ describe("index.html : CSP de l'ADR 0005", () => {
 
   test("les fichiers référencés sont servis par la liste blanche de viz/lib/http.cjs", () => {
     const refs = [...html.matchAll(/(?:src|href)\s*=\s*"([^"#]+)"/g)].map((m) => m[1]).filter((ref) => !ref.startsWith("data:"));
-    assert.ok(refs.includes("css/app.css") && refs.includes("css/agents.css") && refs.includes("css/fallback.css") && refs.includes("js/main.js"));
+    assert.ok(refs.includes("css/app.css") && refs.includes("css/badges.css") && refs.includes("css/characters.css") && refs.includes("css/fallback.css") && refs.includes("js/main.js"));
     for (const ref of refs) {
       const served = resolveStaticPath(PUBLIC_DIR, "/" + ref);
       assert.equal(served.status, 200, ref);
@@ -123,8 +123,12 @@ describe("index.html : CSP de l'ADR 0005", () => {
     assert.match(code("main.js"), /getElementById\("avertissement"\)/);
   });
 
+  test("characters.js branche l'avertissement des fichiers 3D manquants sur ui.js", () => {
+    assert.match(code("main.js"), /onAssetsFailed:\s*\(count\)\s*=>\s*ui\.showAssetsWarning\(doc\.getElementById\("avertissement"\),\s*count\)/);
+  });
+
   test("les feuilles de style ne chargent rien d'externe", () => {
-    for (const file of ["css/app.css", "css/agents.css", "css/fallback.css"]) {
+    for (const file of ["css/app.css", "css/badges.css", "css/characters.css", "css/fallback.css"]) {
       const css = fs.readFileSync(path.join(PUBLIC_DIR, file), "utf8");
       assert.doesNotMatch(css, /@import|url\(\s*["']?(?:https?:)?\/\//i, file);
     }
@@ -149,8 +153,8 @@ describe("modules de js/ : imports", () => {
     });
   }
 
-  test("main.js, scene.js, labels.js, agents.js, motion.js, ui.js, fallback.js, view-model.js et sync.js existent (et chaque module a un seul rôle)", () => {
-    for (const file of ["main.js", "scene.js", "labels.js", "agents.js", "motion.js", "ui.js", "fallback.js", "view-model.js", "sync.js", "state.js", "layout.js"]) {
+  test("main.js, scene.js, labels.js, characters.js, motion.js, ui.js, fallback.js, view-model.js et sync.js existent (et chaque module a un seul rôle)", () => {
+    for (const file of ["main.js", "scene.js", "labels.js", "characters.js", "motion.js", "ui.js", "fallback.js", "view-model.js", "sync.js", "state.js", "office-layout.js"]) {
       assert.ok(jsFiles.includes(file), file);
     }
   });
@@ -177,18 +181,19 @@ describe("modules de js/ : interdits", () => {
     }
   });
 
-  test("seuls scene.js, labels.js et agents.js importent `three` ; ils ne dépendent pas de state.js (ils ne décident rien)", () => {
+  test("seuls characters.js, labels.js et scene.js importent `three` ; ils ne dépendent pas de state.js (ils ne décident rien)", () => {
     const importers = jsFiles.filter((file) => specifiers(code(file)).some((s) => s === "three" || s.startsWith("three/")));
-    assert.deepEqual(importers, ["agents.js", "labels.js", "scene.js"]);
+    assert.deepEqual(importers, ["characters.js", "labels.js", "scene.js"]);
+    const pure = ["./view-model.js", "./office-layout.js", "./crew.js", "./assets.js", "./motion.js"];
     for (const file of importers) {
       const imports = specifiers(code(file));
       assert.ok(!imports.includes("./state.js"), `${file} importe state.js`);
-      assert.ok(imports.includes("./view-model.js") || imports.includes("./layout.js"), `${file} doit s'appuyer sur un module pur`);
+      assert.ok(imports.some((s) => pure.includes(s)), `${file} doit s'appuyer sur un module pur`);
     }
   });
 
-  test("scene.js, labels.js et agents.js ne contiennent ni table de couleurs ni règle de statut ou de station", () => {
-    for (const file of ["scene.js", "labels.js", "agents.js"]) {
+  test("scene.js, labels.js et characters.js ne contiennent ni table de couleurs ni règle de statut ou de station", () => {
+    for (const file of ["scene.js", "labels.js", "characters.js"]) {
       const source = code(file);
       assert.doesNotMatch(source, /\b(?:backlog|in-progress|in-review|in-test|changes-requested|blocked)\b/, `${file} : statut en dur`);
       assert.doesNotMatch(source, /#[0-9a-fA-F]{6}\b/, `${file} : couleur CSS en dur`);
@@ -196,12 +201,13 @@ describe("modules de js/ : interdits", () => {
     }
   });
 
-  test("main.js ne charge `three` qu'à la demande : aucun import statique de scene.js, labels.js ni agents.js", () => {
+  test("main.js ne charge `three` qu'à la demande : aucun import statique de scene.js, labels.js ni characters.js", () => {
     const source = code("main.js");
     const statics = [...source.matchAll(/^import\b[^;]*?from\s*["']([^"']+)["']/gm)].map((m) => m[1]);
     assert.deepEqual(statics.sort(), ["./fallback.js", "./state.js", "./sync.js", "./ui.js"]);
     assert.match(source, /import\(\s*"\.\/scene\.js"\s*\)/);
     assert.match(source, /import\(\s*"\.\/labels\.js"\s*\)/);
-    assert.match(source, /import\(\s*"\.\/agents\.js"\s*\)/);
+    assert.match(source, /import\(\s*"\.\/characters\.js"\s*\)/);
+    assert.doesNotMatch(source, /agents\.js/, "les sphères lumineuses ne sont plus branchées");
   });
 });

@@ -1,5 +1,5 @@
 // Tests de viz/public/js/motion.js : courbes et bornes d'interpolation, durées, pistes de déplacement, couleur par type
-// d'agent, décision d'opacité par phase, pulsation, fondu, badges de retry. Module pur : aucun DOM, aucun WebGL.
+// d'agent, badges de retry, absence des exports du pipeline lumineux retiré. Module pur : aucun DOM, aucun WebGL.
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 
@@ -8,29 +8,15 @@ import { STATUS_COLORS } from "../../viz/public/js/view-model.js";
 import {
   AGENT_COLORS,
   AGENT_DEFAULT_COLOR,
-  AGENT_LOOKS,
-  BLOOM,
-  FADE_SECONDS,
-  GLOW_LUMINANCE,
   MOVE_MAX_SECONDS,
   MOVE_MIN_SECONDS,
-  PULSE_PERIOD_SECONDS,
   SHIFT_SECONDS,
   agentColor,
-  agentLook,
-  agentVisible,
   easeInOutCubic,
   easeOutCubic,
-  fadeStep,
-  followPoint,
-  glowScale,
-  initialOpacity,
   interpolate,
-  luminance,
   moveDuration,
   planTracks,
-  pulseOffset,
-  pulseScale,
   retryBadgeText,
   retryBadges,
   sampleTracks,
@@ -281,172 +267,6 @@ describe("couleur par type d'agent", () => {
   });
 });
 
-describe("bloom : seuls les agents brillent", () => {
-  test("luminance : noir 0, blanc 1, le vert pèse plus que le bleu", () => {
-    assert.equal(luminance(0x000000), 0);
-    near(luminance(0xffffff), 1, 1e-6);
-    assert.ok(luminance(0x00ff00) > luminance(0xff0000) && luminance(0xff0000) > luminance(0x0000ff));
-  });
-
-  test("glowScale ramène chaque couleur d'agent à GLOW_LUMINANCE, quelle que soit sa teinte", () => {
-    for (const [type, color] of Object.entries(AGENT_COLORS)) {
-      near(luminance(color) * glowScale(color), GLOW_LUMINANCE, 1e-9, type);
-    }
-    assert.ok(Number.isFinite(glowScale(0x000000)), "pas de division par zéro");
-  });
-
-  test("un agent actif dépasse le seuil du bloom, même estompé ; un agent atténué (unknown) ou en fondu ne brille plus", () => {
-    for (const phase of ["requested", "running", "reported"]) {
-      const shown = GLOW_LUMINANCE * agentLook(phase).opacity;
-      assert.ok(shown > BLOOM.threshold, `${phase} : ${shown.toFixed(2)} <= seuil ${BLOOM.threshold}`);
-    }
-    assert.ok(GLOW_LUMINANCE * agentLook("unknown").opacity < BLOOM.threshold);
-    assert.ok(GLOW_LUMINANCE * agentLook("finished").opacity < BLOOM.threshold);
-  });
-
-  test("le seuil est au-dessus de la luminance maximale du décor éclairé (sommet d'un cube blanc sous les deux lumières de la scène)", () => {
-    // HemisphereLight 1,6 + DirectionalLight 1,8 (cos <= 1) sur l'albédo le plus clair des statuts : borne haute.
-    const brightest = Math.max(...Object.values(STATUS_COLORS).map(luminance));
-    assert.ok(brightest * (1.6 + 1.8) < BLOOM.threshold, `décor jusqu'à ${(brightest * 3.4).toFixed(2)}`);
-  });
-});
-
-describe("opacité et pulsation par phase", () => {
-  test("running est plein, unknown est atténué, finished est invisible, les autres entre les deux", () => {
-    assert.equal(agentLook("running").opacity, 1);
-    assert.equal(agentLook("finished").opacity, 0);
-    assert.ok(agentLook("unknown").opacity > 0 && agentLook("unknown").opacity < 0.5);
-    for (const phase of ["requested", "reported"]) {
-      const { opacity } = agentLook(phase);
-      assert.ok(opacity > agentLook("unknown").opacity && opacity < 1, phase);
-    }
-  });
-
-  test("seuls les agents vivants pulsent ; running pulse le plus", () => {
-    assert.equal(agentLook("unknown").pulse, 0);
-    assert.equal(agentLook("finished").pulse, 0);
-    for (const phase of ["requested", "running", "reported"]) assert.ok(agentLook(phase).pulse > 0, phase);
-    assert.ok(agentLook("running").pulse > agentLook("requested").pulse);
-    assert.ok(agentLook("running").pulse > agentLook("reported").pulse);
-  });
-
-  test("une phase inconnue ou absente est traitée comme unknown", () => {
-    for (const phase of ["bizarre", undefined, null, "toString"]) assert.deepEqual(agentLook(phase), agentLook("unknown"), String(phase));
-  });
-
-  test("prefers-reduced-motion : la pulsation est nulle pour toutes les phases, l'opacité ne change pas", () => {
-    for (const phase of Object.keys(AGENT_LOOKS)) {
-      const reduced = agentLook(phase, { reduced: true });
-      assert.equal(reduced.pulse, 0, phase);
-      assert.equal(reduced.opacity, agentLook(phase).opacity, phase);
-    }
-  });
-
-  test("la table des phases n'est pas modifiable", () => {
-    assert.throws(() => {
-      "use strict";
-      AGENT_LOOKS.running = { opacity: 0, pulse: 0 };
-    }, TypeError);
-  });
-
-  test("initialOpacity : un agent s'allume en fondu, sauf s'il est déjà terminé ou en mouvement réduit", () => {
-    assert.equal(initialOpacity("running"), 0);
-    assert.equal(initialOpacity("requested"), 0);
-    assert.equal(initialOpacity("finished"), 0);
-    assert.equal(initialOpacity("running", { reduced: true }), 1);
-    assert.equal(initialOpacity("unknown", { reduced: true }), agentLook("unknown").opacity);
-    assert.equal(initialOpacity("finished", { reduced: true }), 0);
-  });
-
-  test("agentVisible : seul un agent terminé dont le fondu est achevé disparaît", () => {
-    assert.equal(agentVisible("finished", 0), false);
-    assert.equal(agentVisible("finished", 0.005), false);
-    assert.equal(agentVisible("finished", 0.5), true, "encore en train de s'effacer");
-    assert.equal(agentVisible("running", 0), true, "un agent qui s'allume est dessiné dès la première image");
-    assert.equal(agentVisible("unknown", 0.3), true);
-  });
-});
-
-describe("fondu", () => {
-  test("fadeStep monte et descend à vitesse constante, sans dépasser la cible", () => {
-    near(fadeStep(0, 1, 0.25), 0.25 / FADE_SECONDS);
-    near(fadeStep(1, 0, 0.25), 1 - 0.25 / FADE_SECONDS);
-    assert.equal(fadeStep(0.9, 1, 5), 1);
-    assert.equal(fadeStep(0.1, 0, 5), 0);
-    assert.equal(fadeStep(0.4, 0.4, 1), 0.4);
-  });
-
-  test("un fondu complet dure FADE_SECONDS : image après image, la cible est atteinte et pas avant", () => {
-    let opacity = 1;
-    let seconds = 0;
-    while (opacity > 0 && seconds < 10) {
-      opacity = fadeStep(opacity, 0, 1 / 60);
-      seconds += 1 / 60;
-    }
-    assert.ok(Math.abs(seconds - FADE_SECONDS) < 0.05, `${seconds.toFixed(2)} s`);
-  });
-
-  test("sans temps écoulé, rien ne bouge ; avec réduction de mouvement, la cible est atteinte tout de suite", () => {
-    assert.equal(fadeStep(0.3, 1, 0), 0.3);
-    assert.equal(fadeStep(0.3, 1, -1), 0.3);
-    assert.equal(fadeStep(1, 0, 0, { reduced: true }), 0);
-    assert.equal(fadeStep(0, 1, 0.001, { reduced: true }), 1);
-  });
-});
-
-describe("pulsation", () => {
-  test("pulseScale oscille entre 1 - a et 1 + a avec la période PULSE_PERIOD_SECONDS", () => {
-    const a = 0.2;
-    near(pulseScale(a, 0), 1);
-    near(pulseScale(a, PULSE_PERIOD_SECONDS / 4), 1.2);
-    near(pulseScale(a, (3 * PULSE_PERIOD_SECONDS) / 4), 0.8);
-    near(pulseScale(a, 3.3), pulseScale(a, 3.3 + PULSE_PERIOD_SECONDS), 1e-9, "périodique");
-    for (let i = 0; i < 200; i++) {
-      const s = pulseScale(a, i * 0.037, 1.3);
-      assert.ok(s >= 1 - a - 1e-12 && s <= 1 + a + 1e-12);
-    }
-  });
-
-  test("une amplitude nulle (agent calme, réduction de mouvement) donne toujours 1", () => {
-    for (const t of [0, 0.4, 1.7, 99]) assert.equal(pulseScale(0, t, 2), 1);
-    assert.equal(pulseScale(-0.5, 0.4), 1);
-    assert.equal(pulseScale(agentLook("running", { reduced: true }).pulse, 0.4), 1);
-  });
-
-  test("pulseOffset : déterministe, dans [0, 2π[, différent d'un agent à l'autre", () => {
-    assert.equal(pulseOffset("a152ecd0174a7c035"), pulseOffset("a152ecd0174a7c035"));
-    const offsets = ["a", "b", "agent-1", "agent-2", "a152ecd0174a7c035"].map(pulseOffset);
-    for (const o of offsets) assert.ok(o >= 0 && o < 2 * Math.PI);
-    assert.ok(new Set(offsets).size >= 4);
-  });
-});
-
-describe("suivi d'un agent (followPoint)", () => {
-  test("se rapproche de la cible sans la dépasser, et l'atteint", () => {
-    let p = P(0, 0, 0);
-    const target = P(10, 4, -6);
-    let previous = Infinity;
-    for (let i = 0; i < 600; i++) {
-      p = followPoint(p, target, 1 / 60);
-      const remaining = Math.hypot(target.x - p.x, target.y - p.y, target.z - p.z);
-      assert.ok(remaining <= previous + 1e-12);
-      previous = remaining;
-    }
-    assert.deepEqual(p, target);
-  });
-
-  test("avec réduction de mouvement, il est immédiatement sur la cible (copie)", () => {
-    const target = P(10, 4, -6);
-    const p = followPoint(P(0), target, 1 / 60, { reduced: true });
-    assert.deepEqual(p, target);
-    assert.notEqual(p, target);
-  });
-
-  test("sans temps écoulé, il reste où il est", () => {
-    assert.deepEqual(followPoint(P(1, 2, 3), P(10, 10, 10), 0), P(1, 2, 3));
-  });
-});
-
 describe("badges de retry", () => {
   const model = init(
     stateOf({
@@ -476,5 +296,19 @@ describe("badges de retry", () => {
   test("le texte d'un badge est du texte : un titre piégé n'entre jamais dedans", () => {
     const trapped = init(stateOf({ features: [feature(9, "ready", { retry: 1, title: "<img src=x onerror=alert(1)>" })] }));
     assert.deepEqual(retryBadges(trapped).map((b) => b.text), ["Retry 1"]);
+  });
+});
+
+describe("retrait du pipeline lumineux (ADR 0009)", () => {
+  test("motion.js n'exporte plus le bloom, les sphères lumineuses, leur pulsation ni leur fondu", async () => {
+    const exported = Object.keys(await import("../../viz/public/js/motion.js"));
+    const removed = [
+      "BLOOM", "GLOW_LUMINANCE", "glowScale", "luminance", "AGENT_LOOKS", "agentLook", "PULSE_PERIOD_SECONDS", "pulseOffset",
+      "pulseScale", "FADE_SECONDS", "fadeStep", "initialOpacity", "agentVisible", "INVISIBLE", "AGENT_FOLLOW_RATE", "followPoint",
+    ];
+    for (const name of removed) assert.ok(!exported.includes(name), `${name} est encore exporté`);
+    for (const name of ["agentColor", "AGENT_COLORS", "AGENT_DEFAULT_COLOR", "planTracks", "sampleTracks", "retryBadges"]) {
+      assert.ok(exported.includes(name), `${name} doit rester exporté`);
+    }
   });
 });

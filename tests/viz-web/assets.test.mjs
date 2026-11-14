@@ -13,7 +13,7 @@ const require = createRequire(import.meta.url);
 const { readGlb } = require("../helpers/glb.cjs");
 
 const PUBLIC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../viz/public");
-const { ASSETS, ROLES, characterFor } = await import(pathToFileURL(path.join(PUBLIC, "js/assets.js")).href);
+const { ASSETS, ROLES, SIT_LIFT, characterFor } = await import(pathToFileURL(path.join(PUBLIC, "js/assets.js")).href);
 
 const ALL_ROLES = ["chef-de-projet", "architecte", "developpeur", "verificateur", "testeur"];
 const all = () => [...ASSETS.characters, ...ASSETS.furniture];
@@ -133,5 +133,30 @@ describe("intégration : manifeste, SOURCE.md, disque et GLB", () => {
   test("tous les personnages vendorés sont dans le manifeste", () => {
     const used = new Set(ASSETS.characters.map((c) => rel(c.path)));
     for (const f of listed) if (/^characters\/[^/]+\.glb$/.test(f)) assert.ok(used.has(f), `${f} vendoré mais inutilisé`);
+  });
+});
+
+describe("échelle des personnages", () => {
+  // Hauteur d'un GLB (unités du modèle) : sommet max des maillages (accessor POSITION.max).
+  const heightOf = (file) => {
+    const { json } = readGlb(fs.readFileSync(path.join(PUBLIC, file)));
+    return Math.max(...json.meshes.flatMap((m) => m.primitives.map((p) => json.accessors[p.attributes.POSITION].max[1])));
+  };
+  const scaleOf = (list, id) => list.find((a) => a.id === id).scale;
+
+  test("un bonhomme debout fait de 1,5 à 2,1 fois la hauteur du plateau de bureau, à l'échelle du manifeste", () => {
+    const desk = heightOf("vendor/kenney/furniture/desk.glb") * scaleOf(ASSETS.furniture, "desk");
+    for (const c of ASSETS.characters) {
+      const ratio = (heightOf(c.path) * c.scale) / desk;
+      assert.ok(ratio >= 1.5 && ratio <= 2.1, `${c.id} : ${ratio.toFixed(2)} fois le bureau`);
+    }
+  });
+
+  test("un bonhomme assis dépasse nettement du dossier de la chaise", () => {
+    const chair = heightOf("vendor/kenney/furniture/chairDesk.glb") * scaleOf(ASSETS.furniture, "chairDesk");
+    for (const c of ASSETS.characters) {
+      const seated = (heightOf(c.path) - 0.15) * c.scale + SIT_LIFT; // le clip `sit` abaisse le bassin de 0,15
+      assert.ok(seated >= chair * 1.3, `${c.id} assis : ${seated.toFixed(2)} pour un dossier de ${chair.toFixed(2)}`);
+    }
   });
 });

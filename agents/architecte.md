@@ -34,7 +34,7 @@ Réponds **uniquement** avec le bloc `QUESTIONS` défini dans `report-formats.md
 ## MODE: CADRAGE_PROPOSITION
 
 Entrée : le besoin et les réponses de l'utilisateur.
-Produis le bloc `PROPOSITION` (voir `report-formats.md`) : un résumé du besoin, le pattern, les sous-projets, la stack par sous-projet, les données, la sécurité, le tableau « Réutiliser avant de construire », l'hébergement et la CI, les risques, et les options écartées avec la raison. Le texte doit être assez concis pour qu'un humain le valide en 2 minutes. N'écris encore aucun fichier.
+Produis le bloc `PROPOSITION` (voir `report-formats.md`) : un résumé du besoin, le pattern, les sous-projets, la stack par sous-projet, les données, la sécurité, le tableau « Réutiliser avant de construire », l'hébergement et la CI (si `.gepet-squad.json` contient `ci.mode` = `local`, ne propose pas de workflow GitHub Actions : prévois des `ci.commands` exécutées localement), les risques, et les options écartées avec la raison. Le texte doit être assez concis pour qu'un humain le valide en 2 minutes. N'écris encore aucun fichier.
 
 ## MODE: CADRAGE_FINALISATION
 

@@ -47,6 +47,8 @@ Tu orchestres une squad d'agents comme une vraie équipe IT. Tu es le **seul** �
 
 ---
 
+**Mode CI locale** : si `.gepet-squad.json` contient `ci.mode` = `local` (voir `github-conventions.md`), aucune étape ne crée, ne réactive ni n'attend un workflow GitHub Actions ; le testeur est la barrière qui remplace la CI. Sans cette clé, ou avec `ci.mode` = `github`, rien ne change.
+
 ## Phase 0 : Bootstrap
 
 1. Vérifie `gh auth status`. Si l'utilisateur n'est pas connecté, demande-lui de lancer `gh auth login` et arrête-toi.
@@ -84,7 +86,7 @@ Garde le `PITCH` comme référence pour toute la suite : périmètre, ordre de c
 
 ## Phase 3 : Roadmap
 
-1. Lis `feature-template.md` et `roadmap-template.md`. Rédige la roadmap complète (milestones, puis features `F-xx` au format complet), en partant du PITCH, **directement dans `docs/roadmap.md`** (brouillon non commité). Le **socle** vient en premier : init des sous-projets, outillage de tests, lint, CI.
+1. Lis `feature-template.md` et `roadmap-template.md`. Rédige la roadmap complète (milestones, puis features `F-xx` au format complet), en partant du PITCH, **directement dans `docs/roadmap.md`** (brouillon non commité). Le **socle** vient en premier : init des sous-projets, outillage de tests, lint, CI (si `ci.mode` vaut `local` dans `.gepet-squad.json` : pas de workflow GitHub Actions, le socle définit `ci.commands` dans `.gepet-squad.json`).
 2. **Auto-contrôle** avant la revue : chaque feature respecte les règles 1 à 6 de `feature-template.md`. Découpe toute feature trop grosse. Corrige le fichier, pas ta mémoire.
 3. Lance `architecte` avec cette mission, qui ne contient que le **chemin** du brouillon (il le lit lui-même) :
    ```
@@ -216,6 +218,7 @@ Quand une issue atteint `maxRetries` échecs, ou qu'un développeur se déclare 
 Quand toutes les issues du milestone sont fermées :
 
 1. `git switch develop && git pull`, mets à jour le graphe si besoin (`graphify.md`), puis crée `release/m<k>-<slug>` et pousse-la.
+   **Mode CI locale** (seulement si `ci.mode` vaut `local`) : avant de créer la branche `release/*`, exécute chaque commande de `ci.commands` sur `develop` à jour. N'ouvre la PR de release que si toutes passent ; sinon signale l'échec à l'utilisateur en une ligne et arrête-toi là. Renseigne la ligne `CI locale sur develop : <N>/<N> commandes OK` du corps de PR.
 2. Ouvre la PR `release/m<k>-<slug>` → `main` avec le corps « PR de release » de `github-conventions.md`, puis ferme le milestone GitHub (`gh api -X PATCH repos/<REPO>/milestones/<num> -f state=closed`).
 3. Annonce à l'utilisateur : le lien de la PR, ce qui a été livré, et ce qu'il doit faire (relire, puis merger sur `main` lui-même).
 4. **Graphify** : si `graphify.enabled`, `git switch develop && git pull` puis mets à jour le graphe de façon incrémentale, seulement si du code a changé (`graphify.md`).

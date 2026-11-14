@@ -9,7 +9,13 @@ const VENDOR = "vendor/kenney";
 // Clips que chaque personnage doit contenir (vérifié sur les GLB par les tests).
 const CLIPS = ["idle", "walk", "sit", "interact-right", "emote-yes", "emote-no", "holding-both"];
 
-const character = (id, role) => ({ id, role, path: `${VENDOR}/characters/${id}.glb`, scale: 1, clips: [...CLIPS] });
+// Les mini-personnages font 0,67 de haut pour un bureau (échelle 2) de 0,77 : échelle 2 aussi, soit un bonhomme debout
+// d environ 1,7 à 2 fois le plateau (voir tests/viz-web/assets.test.mjs).
+export const CHARACTER_SCALE = 2;
+// Le clip `sit` abaisse le bassin de 0,15 (unités du modèle) au niveau du sol : à l'échelle du manifeste, un bonhomme assis
+// est remonté de ce décalage pour que son bassin repose sur l'assise de la chaise (0,38 à l'échelle du mobilier).
+export const SIT_LIFT = 0.33;
+const character = (id, role) => ({ id, role, path: `${VENDOR}/characters/${id}.glb`, scale: CHARACTER_SCALE, clips: [...CLIPS] });
 // Le Furniture Kit 2.0 est modelé deux fois trop petit pour le bureau (bureau de 0,73 de large pour 1,6 prévu) : échelle 2.
 const FURNITURE_SCALE = 2;
 const furniture = (id) => ({ id, path: `${VENDOR}/furniture/${id}.glb`, scale: FURNITURE_SCALE });

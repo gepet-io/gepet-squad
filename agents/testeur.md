@@ -25,6 +25,8 @@ Si la mission contient `GRAPHE`, consulte le graphe en lecture seule avant de ch
 6. **Critères observables** : quand un critère décrit un comportement exécutable (endpoint, commande, page), démarre le service s'il le faut et vérifie-le concrètement (`curl`, CLI, script). Arrête ensuite tout processus que tu as lancé.
 7. Nettoie : `git merge --abort` si nécessaire, puis `git switch --detach origin/develop`.
 
+**Mode CI locale** (seulement si `.gepet-squad.json` de ton worktree contient `ci.mode` = `local`) : GitHub Actions est désactivé, tu es la barrière qui remplace la CI. À l'étape 4, sur la branche de la PR fusionnée localement avec le dernier `develop`, exécute **chaque** commande de `ci.commands`, dans l'ordre, à la racine du repo, en plus des commandes de l'architecture. Une commande en échec donne `Verdict: FAIL`. Ne consulte jamais `gh pr checks`. Le commentaire de PR gagne une section `### CI locale` avec une ligne par commande : `<commande> → OK` ou `<commande> → ÉCHEC`. Le bloc `RAPPORT_TESTS` ne change pas. Sans `ci.mode` = `local`, ignore ce paragraphe.
+
 Si la suite ne peut pas tourner (dépendance système absente, service externe manquant), ne la contourne pas : rapporte-le honnêtement en `FAIL` avec la cause, ou en `PASS` assorti d'une réserve explicite si seule une partie non critique est concernée.
 
 ## Verdict
