@@ -10,7 +10,7 @@ Référence : [ARCHITECTURE.md](architecture/ARCHITECTURE.md) et ses ADR. Versio
 | M3 — Vue 3D et commande | `/gepet-squad-viz` ouvre une page 3D qui montre le pipeline, les features et les agents lumineux en temps réel ; repli texte sans WebGL ; plugin en 0.4.0 | F-10…F-14 | viz-web, skills |
 | M4 — Économie de tokens | Rapports d'agents en 5 lignes (détail sur la PR), missions épurées à préfixe stable, état du CP lu à la demande dans GitHub et `docs/roadmap.md` ; plugin en 0.6.0 | F-16…F-18 | skills |
 | M5 — Bureau 3D : décor et kanban | `/gepet-squad-viz` montre un bureau 3D low-poly meublé (assets Kenney CC0) et un kanban mural de post-its à la place du pipeline ; agents encore en sphères, placés dans leur zone ; plugin en 0.8.0 | F-19…F-25 | repo, viz-server, viz-web, skills |
-| M6 — Bonshommes vivants | Les agents sont de petits bonhommes animés qui entrent, travaillent à leur poste, montrent leur verdict et repartent ; bloom et sphères retirés ; plugin en 0.9.0 | F-26…F-31 | viz-web, skills |
+| M6 — Bonshommes vivants | Les agents sont de petits bonhommes animés qui entrent, travaillent à leur poste, montrent leur verdict et repartent ; bloom et sphères retirés ; plugin en 0.9.0 | F-26…F-32 | viz-web, skills |
 
 ## Graphe de dépendances
 ```
@@ -27,6 +27,7 @@ F-19 → F-22 → F-23 → F-24 → F-25
 F-20 → F-24 ; F-21 → F-24
 F-23 → F-26 → F-27 → F-31 → F-28 → F-29 → F-30
 F-24 → F-28
+F-32 → F-30   (mode « CI locale », ajouté le 2026-11-14 à la demande de l'utilisateur)
 ```
 Parallélisations prévues : F-05 ∥ F-06 puis F-07 ∥ F-09 (M2) ; F-12 ∥ F-13 (M3) ; F-19 ∥ F-20 ∥ F-21 (M5).
 À ne pas paralléliser : deux features qui touchent `hooks/hooks.json` (seule F-04 le modifie) ; F-07, F-08 et F-15 (mêmes fichiers `http.cjs` / `server.cjs`).
@@ -876,7 +877,7 @@ S
 
 ## M6 — Bonshommes vivants
 **Objectif** : les agents deviennent de petits bonhommes Kenney animés : ils entrent par la porte, marchent jusqu'à leur poste, tapent au clavier, montrent leur verdict dans une bulle et repartent ; le chef de projet travaille en permanence à son bureau ; les sphères lumineuses et le bloom disparaissent.
-**Définition de fin** : F-26 à F-31 mergées ; le cycle complet d'un agent (entrée, travail, verdict, sortie, reprise) est visible et couvert par des tests ; aucune marche avec `prefers-reduced-motion` ; `agents.js`, `layout.js` et les addons `postprocessing` sont supprimés ; plugin en 0.9.0.
+**Définition de fin** : F-26 à F-32 mergées ; le cycle complet d'un agent (entrée, travail, verdict, sortie, reprise) est visible et couvert par des tests ; aucune marche avec `prefers-reduced-motion` ; `agents.js`, `layout.js` et les addons `postprocessing` sont supprimés ; plugin en 0.9.0.
 
 ### F-26 · [viz-web] Trajets purs des bonhommes (`paths.js`)
 ## Contexte
@@ -1045,6 +1046,40 @@ Après F-28, les sphères lumineuses, le bloom et l'ancien plan du pipeline ne s
 ## Taille
 S
 
+### F-32 · [skills] Mode « CI locale » : la squad remplace GitHub Actions par l'exécution locale des contrôles
+## Contexte
+Sur ce projet, l'utilisateur a épuisé ses quotas GitHub Actions (artefacts et minutes de calcul) ; le workflow `CI` a été désactivé et `.gepet-squad.json` porte désormais `"ci": { "mode": "local", "commands": [...] }`. Aujourd'hui, le plugin suppose une CI GitHub Actions : l'architecte la propose d'office, le socle de chaque roadmap la crée, et rien ne garantit qu'un merge sur `develop` ou une PR de release a passé les mêmes contrôles. L'utilisateur veut que ce mode de fonctionnement devienne une option du plugin, livrée dans la prochaine version : en mode local, le **testeur** est la barrière qui remplace la CI, et le Chef de projet rejoue les contrôles avant la PR de release.
+
+## Objectif
+Le plugin gère une clé `ci` de `.gepet-squad.json` (`mode: "github" | "local"`, `commands`) : en mode `local`, le testeur exécute toutes les `ci.commands` sur la PR fusionnée avec `develop` avant tout PASS, le CP les rejoue sur `develop` avant d'ouvrir une PR de release, et aucun agent ne crée, n'attend ni ne réactive de workflow GitHub Actions.
+
+## Critères d'acceptance
+- [ ] `skills/gepet-squad/references/github-conventions.md` documente la clé optionnelle `"ci": { "mode": "github" | "local", "commands": ["…"] }` : absente ou `mode: "github"` = comportement actuel ; `mode: "local"` = aucune exécution GitHub Actions, `commands` = liste ordonnée des contrôles (install, lint, build, tests, vérifications de scripts) lancés à la racine du repo ; un exemple complet est donné.
+- [ ] `agents/testeur.md` : en mode `local` (lu dans `.gepet-squad.json` de son worktree), le testeur exécute **chaque** commande de `ci.commands`, dans l'ordre, sur la branche de la PR fusionnée localement avec le dernier `develop` ; une commande en échec donne `Verdict: FAIL` ; le commentaire « 🧪 Tests de non-régression » contient une section `### CI locale` avec une ligne par commande (`<commande> → OK | ÉCHEC`). Le bloc `RAPPORT_TESTS` reste inchangé (5 lignes).
+- [ ] `agents/developpeur.md` : en mode `local`, le développeur exécute les `ci.commands` avant d'ouvrir la PR (ou de pousser un correctif) et n'attend ni ne consulte `gh pr checks`.
+- [ ] `skills/gepet-squad/SKILL.md` : en mode `local`, (a) phase 5 : avant de créer la branche `release/*`, le CP exécute les `ci.commands` sur `develop` à jour et n'ouvre la PR de release que si toutes passent (sinon il signale l'échec à l'utilisateur en une ligne) ; le corps « PR de release » de `github-conventions.md` gagne la ligne `CI locale sur develop : <N>/<N> commandes OK` ; (b) aucune étape ne crée, ne réactive ni n'attend un workflow GitHub Actions.
+- [ ] Cadrage : `agents/architecte.md`, `references/architecture-template.md` (§ Hébergement & CI), `references/feature-template.md` (règle 6) et `references/roadmap-template.md` ou la phase 3 du SKILL prévoient le cas local : quand `ci.mode` vaut `local`, le socle d'une nouvelle roadmap ne crée pas de workflow GitHub Actions et définit à la place `ci.commands` dans `.gepet-squad.json`.
+- [ ] `skills/gepet-squad-resume/SKILL.md` : à la reprise, si `ci.mode` vaut `local`, le CP le signale dans son annonce (une ligne) ; aucun autre changement de logique de reprise.
+- [ ] Mode `github` (ou clé absente) : aucun changement de comportement ; `grep` confirme que chaque nouvelle instruction est conditionnée par `ci.mode` = `local`.
+- [ ] Tests unitaires : nouveau `tests/skills/ci-local.test.cjs` qui vérifie que `github-conventions.md` documente `ci.mode` et `ci.commands`, que `agents/testeur.md`, `agents/developpeur.md` et `skills/gepet-squad/SKILL.md` mentionnent le mode local et `ci.commands`, et que `.gepet-squad.json` de ce repo est un JSON valide dont `ci.commands` est un tableau non vide de chaînes.
+- [ ] Tests d'intégration : `claude plugin validate .` au vert ; chaque commande de `ci.commands` de ce repo s'exécute avec succès depuis la racine (preuve dans le commentaire de PR) ; le test du hook `guard.cjs` de `CLAUDE.md` au vert.
+- [ ] Lint, build et suite de tests complète au vert : les `ci.commands` de `.gepet-squad.json` (`npm ci`, `npm run lint`, `npm test`, `bash -n` des trois scripts).
+
+## Notes techniques
+- Sous-projet : `skills`
+- ADR de référence : aucun (changement du processus du plugin, documenté dans `github-conventions.md`)
+- Fichiers / modules concernés : `skills/gepet-squad/SKILL.md`, `skills/gepet-squad-resume/SKILL.md`, `skills/gepet-squad/references/github-conventions.md`, `skills/gepet-squad/references/architecture-template.md`, `skills/gepet-squad/references/feature-template.md`, `skills/gepet-squad/references/roadmap-template.md`, `agents/testeur.md`, `agents/developpeur.md`, `agents/architecte.md`, `tests/skills/ci-local.test.cjs` (nouveau)
+- Contraintes : tout en français ; ne pas toucher `.claude-plugin/plugin.json`, `CHANGELOG.md` ni `README.md` (version 0.9.0 et documentation portées par F-30, qui décrit aussi ce mode) ; le testeur et le vérificateur gardent leurs outils actuels (ni `Edit` ni `Write`) ; ne pas modifier `.github/workflows/ci.yml` ni réactiver le workflow ; ne pas toucher aux lignes `tools:` des agents.
+
+## Skills / outils recommandés
+- `plugin-authoring` : conventions de prompts de plugin.
+
+## Dépendances
+- aucune
+
+## Taille
+M
+
 ### F-30 · [skills] Documenter les bonshommes et publier la 0.9.0
 ## Contexte
 Avec M6, la vue montre enfin de petits bonhommes qui travaillent : c'est le besoin initial de l'utilisateur. Ce changement de comportement doit être documenté et versionné (`CLAUDE.md`), et le CHANGELOG doit signaler la disparition du bloom et des sphères.
@@ -1057,6 +1092,7 @@ README, skill `gepet-squad-viz` et CHANGELOG décrivent les bonhommes et leur cy
 - [ ] `CHANGELOG.md` : entrée 0.9.0 qui décrit les bonhommes (entrée, travail, verdict, sortie, reprise), le chef de projet permanent, le comportement avec `prefers-reduced-motion`, la capsule de remplacement, et le retrait du bloom et des addons `postprocessing`.
 - [ ] `grep -rniE "sphères? lumineuses?|agents? lumineux|repères? lumineux" README.md skills/` ne renvoie plus rien.
 - [ ] `skills/gepet-squad-viz/SKILL.md` : au plus une phrase dans le message affiché après l'URL ; `tests/skills/viz-skill.test.cjs` au vert.
+- [ ] `README.md` et `CHANGELOG.md` (entrée 0.9.0) décrivent aussi le mode « CI locale » de F-32 : clé `ci` de `.gepet-squad.json`, rôle du testeur et du CP.
 - [ ] `README.md` décrit ce que fait chaque bonhomme selon le rôle et la phase de l'agent (tableau rôle → zone, et état → geste).
 - [ ] Tests unitaires : sans objet (documentation, aucun code).
 - [ ] Tests d'intégration : `claude plugin validate .` au vert, et les tests de `tests/skills/` au vert.
@@ -1072,7 +1108,7 @@ README, skill `gepet-squad-viz` et CHANGELOG décrivent les bonhommes et leur cy
 - `plugin-authoring` : conventions du plugin.
 
 ## Dépendances
-- F-29
+- F-29, F-32
 
 ## Taille
 S
@@ -1113,3 +1149,4 @@ S
 | F-29 | #63 |
 | F-30 | #64 |
 | F-31 | #61 |
+| F-32 | #76 |
