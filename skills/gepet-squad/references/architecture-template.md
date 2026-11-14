@@ -35,6 +35,7 @@
 
 ## 10. Hébergement & CI
 <CI (ex. GitHub Actions : lint + build + tests sur chaque PR vers develop), environnements, déploiement>
+<Si `ci.mode` vaut `local` dans `.gepet-squad.json` : pas de workflow GitHub Actions ; indiquer la liste `ci.commands` (install, lint, build, tests) exécutée localement par le développeur, le testeur et le Chef de projet>
 
 ## 11. Décisions (ADR)
 - [0001 — <titre>](adr/0001-<slug>.md)

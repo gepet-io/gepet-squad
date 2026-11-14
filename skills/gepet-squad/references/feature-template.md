@@ -39,4 +39,4 @@ S | M
 3. Chaque critère est vérifiable par un test ou une commande. Les formulations floues sont interdites : « performant », « propre », « bien géré ».
 4. **Découpage obligatoire** quand la feature est de taille L, qu'elle a plus d'environ 7 critères fonctionnels, qu'elle touche plus d'un sous-projet, qu'elle orchestre plusieurs services, qu'elle porte une sécurité à plusieurs niveaux (ex. authN + RBAC + chiffrement), ou qu'elle mélange socle technique et fonctionnalité.
 5. Un sous-projet par feature (un seul label `scope:*`). Les contrats entre sous-projets (schéma d'API, événements) sont des features à part, réalisées avant leurs consommateurs.
-6. Le premier milestone commence par le **socle** : initialisation des sous-projets, outillage de tests, lint, CI et fichier `.gepet-squad.json`.
+6. Le premier milestone commence par le **socle** : initialisation des sous-projets, outillage de tests, lint, CI et fichier `.gepet-squad.json`. Si `ci.mode` vaut `local`, le socle ne crée **pas** de workflow GitHub Actions : il définit à la place `ci.commands` dans `.gepet-squad.json`.
