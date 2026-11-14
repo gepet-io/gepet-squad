@@ -1,0 +1,46 @@
+/* Bulles de verdict et étiquettes de dossier des bonhommes, posées par characters.js sur des CSS2DObject. Comme les autres
+   étiquettes de la scène, elles ne captent jamais la souris (la couche .labels l'interdit déjà). Pas de style en ligne :
+   la CSP n'autorise que les feuilles de style du site. */
+
+.bubble-verdict {
+  max-width: 180px;
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(13, 17, 23, 0.94);
+  color: var(--fg);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-align: center;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-shadow: none;
+  animation: bubble-in 0.2s ease-out;
+}
+
+.label-folder {
+  padding: 0 5px;
+  border-radius: 4px;
+  background: rgba(13, 17, 23, 0.85);
+  color: #e3c36f;
+  font-size: 11px;
+  font-weight: 600;
+  text-shadow: none;
+}
+
+@keyframes bubble-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bubble-verdict {
+    animation: none;
+  }
+}

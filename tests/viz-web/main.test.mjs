@@ -2,6 +2,7 @@
 // aucun événement perdu entre l'ouverture du flux et la lecture de `/state`, événements déjà repris par `/state`
 // ignorés, indicateur de connexion, nouvelles tentatives, horloge. main.js n'importe pas `three` : il se charge sous Node.
 import { test, describe } from "node:test";
+import fs from "node:fs";
 import assert from "node:assert/strict";
 
 import { connect } from "../../viz/public/js/main.js";
@@ -325,5 +326,21 @@ describe("horloge (tick)", () => {
     assert.deepEqual(clearedTickers, [1]);
     app.close();
     assert.deepEqual(clearedTickers, [1], "un second close() ne l'arrête pas deux fois");
+  });
+});
+
+describe("bonhommes", () => {
+  const source = fs.readFileSync(new URL("../../viz/public/js/main.js", import.meta.url), "utf8");
+
+  test("main.js charge characters.js à la place d'agents.js : plus de sphères ni de bloom", () => {
+    assert.match(source, /import\("\.\/characters\.js"\)/);
+    assert.match(source, /createCharacters\(scene/);
+    assert.doesNotMatch(source, /agents\.js|createAgents|loadAgents/);
+  });
+
+  test("le repli texte et ?mode=texte restent branchés sur forcesFallback et webglAvailable", () => {
+    assert.match(source, /forcesFallback\(win\.location\?\.search\)/);
+    assert.match(source, /webglAvailable\(doc\)/);
+    assert.match(source, /if \(textOnly\) return;/);
   });
 });

@@ -16,13 +16,12 @@ let THREE;
 let createScene;
 let createAgents;
 let createBloomComposer;
-let loadAgents;
 let boot;
 before(async () => {
   THREE = await import("three");
   ({ createScene } = await import("../../viz/public/js/scene.js"));
   ({ createAgents, createBloomComposer } = await import("../../viz/public/js/agents.js"));
-  ({ loadAgents, boot } = await import("../../viz/public/js/main.js"));
+  ({ boot } = await import("../../viz/public/js/main.js"));
 });
 
 
@@ -420,28 +419,7 @@ describe("branchement dans la scène et cycle de vie", () => {
   });
 });
 
-describe("main.js : le crochet onScene et le chargement des agents", () => {
-  test("loadAgents branche les agents sur la scène (module chargé à la demande)", async () => {
-    const api = createScene({ container: fakeContainer(), renderer: fakeRenderer(), window: fakeWindow(), loadModel: fakeLoader(THREE) });
-    const warnings = [];
-    const win = { console: { warn: (m) => warnings.push(m) } };
-    const before = new Set(api.scene.children);
-    await loadAgents(api, win);
-    const layers = api.scene.children.filter((o) => !before.has(o));
-    assert.equal(layers.length, 1, "la couche des agents est ajoutée");
-    assert.deepEqual(warnings, []);
-    api.update(modelOf([], [agent("a", { phase: "running" })]));
-    assert.equal(layers[0].children.length, 1, "l'agent est dessiné");
-  });
-
-  test("loadAgents n'interrompt pas la page si la couche échoue : l'erreur est signalée", async () => {
-    const warnings = [];
-    const win = { console: { warn: (m) => warnings.push(m) } };
-    await loadAgents({}, win);
-    assert.equal(warnings.length, 1);
-    assert.match(warnings[0], /agents lumineux indisponibles/);
-  });
-
+describe("main.js : le crochet onScene", () => {
   test("boot n'appelle onScene que si la scène a pu être créée (ici : le moteur de rendu échoue, donc repli texte)", async () => {
     const page = fakePage(); // WebGL « disponible » pour la sonde, mais createScene échoue : pas de vrai contexte sous Node
     class FakeSource {
