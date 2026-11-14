@@ -56,7 +56,7 @@ Si un autre plugin utilise le même nom, la forme préfixée `/gepet-squad:gepet
 
 ## La vue 3D : `/gepet-squad-viz`
 
-Une vue en lecture seule du workflow d'un projet squad, sous forme de **bureau 3D** : les zones de travail de la squad (décor en modèles glTF), un **kanban de post-its** où chaque feature apparaît dans la colonne de son statut, et les agents qui travaillent. Les agents sont, pour l'instant, des repères lumineux provisoires, remplacés par des bonhommes en 0.9.0.
+Une vue en lecture seule du workflow d'un projet squad, sous forme de **bureau 3D** : les zones de travail de la squad (décor en modèles glTF), un **kanban de post-its** où chaque feature apparaît dans la colonne de son statut, et de petits **bonhommes** qui travaillent. Le chef de projet est toujours à son bureau ; les autres agents entrent par la porte quand ils sont lancés et repartent quand ils ont fini.
 
 ```
 /gepet-squad-viz          démarre le serveur local (ou réaffiche l'URL s'il tourne déjà) et affiche l'URL à ouvrir
@@ -66,6 +66,32 @@ Une vue en lecture seule du workflow d'un projet squad, sous forme de **bureau 3
 - **Où la lancer** : dans le dossier d'un projet squad, ou dans un de ses sous-dossiers (la commande remonte jusqu'à `.gepet-squad.json`). Hors d'un projet squad, elle répond par un message et ne démarre rien.
 - **Prérequis** : Node ≥ 22 (`node --version`), plus la CLI `gh` authentifiée, car l'état de référence vient de GitHub. Aucun `npm install` : le serveur n'utilise que les modules de Node, et Three.js est vendorisé (`viz/public/vendor/three/`, version 0.187.0).
 - **Démarrage** : le serveur écoute après son premier instantané GitHub, ce qui peut prendre jusqu'à 15 s ; la commande attend donc l'URL (20 s au plus). Un second appel affiche la même URL sans lancer un second serveur.
+- **Les bonhommes** : chaque agent suit un cycle scripté, calculé à partir des événements du journal et de l'état GitHub (rien n'est inventé).
+  - Il **entre** par la porte et marche jusqu'à son poste (3 s au plus), **travaille** en tapant au clavier, montre une **bulle de verdict** de 4 s quand il rend son rapport, puis **repart** par la porte quand il a fini. S'il est repris (correctif, nouvelle tentative), il revient s'asseoir au même poste.
+  - Le **chef de projet** reste assis à son bureau en permanence, sans taper ; il fait un geste à chaque changement de statut d'une feature, à chaque merge et à chaque release (au plus un par seconde).
+  - Un agent sans signal depuis 45 min reste en place avec une bulle « ? ».
+  - Avec `prefers-reduced-motion`, il n'y a pas de marche : l'agent apparaît directement à son poste (ou disparaît), les animations sont figées sur leur première image, seules les bulles et les dossiers `#N` changent.
+  - Si un modèle 3D ne se charge pas, le bonhomme est remplacé par une **capsule** colorée selon son rôle.
+
+  | Rôle | Zone et poste | Quand il est là |
+  |---|---|---|
+  | Chef de projet | Bureau du chef de projet, permanent | toujours |
+  | Architecte | Salle de réunion (cadrage, debout) ou kanban (roadmap) | cadrage, revue de roadmap |
+  | Développeur | Open space, un poste par développeur | implémentation ou correctif d'une feature |
+  | Vérificateur | Bureau du vérificateur | revue de PR |
+  | Testeur | Labo | tests de non-régression |
+  | Tout agent d'une feature escaladée | Salle d'escalade | après épuisement des tentatives |
+
+  Une zone à occupant unique offre 3 places (la squad lance des features en parallèle) : la première est assise, les deux autres debout.
+
+  | État de l'agent | Geste du bonhomme |
+  |---|---|
+  | Lancé (`requested`, `running`) | marche jusqu'au poste, puis tape au clavier (debout, l'architecte au kanban reste immobile) |
+  | Rapport rendu (`reported`) | bulle de verdict 4 s : pouce levé pour `PASS`, `LIVRÉ`, `APPROUVÉ`, geste de refus pour `FAIL`, `BLOQUÉ`, `À REVOIR`, mains jointes sinon, puis se rassied |
+  | Terminé (`finished`) | retourne à la porte et disparaît |
+  | Sans signal (`unknown`) | immobile avec une bulle « ? » |
+  | Repris après la fin | revient s'asseoir au même poste |
+
 - **Sans WebGL** (ou en ajoutant `?mode=texte` à l'URL), la page affiche une vue texte : les features par statut et les agents actifs.
 - **Ce qui est capté** : le collecteur (voir « Garde-fou ») note dans un journal local le lancement et la fin des agents de la squad, l'issue et la PR concernées, le mode et le numéro de tentative, le verdict de leur rapport, et les changements de statut passés par `gh`. La page fusionne ce journal et l'état GitHub, qui fait foi.
 - **Confidentialité du journal** : `<dossier-git-commun>/gepet-squad/events.jsonl`, une ligne JSON par événement, jamais commité, avec rotation à 5 Mo. Il ne contient ni prompt ni rapport complet : seulement des champs extraits (voir `CHANGELOG.md`, 0.2.0). Rien n'est écrit hors d'un projet squad.
@@ -74,6 +100,18 @@ Une vue en lecture seule du workflow d'un projet squad, sous forme de **bureau 3
 - **Crédits** : le décor et les personnages vendorisés (`viz/public/vendor/kenney/`) viennent des packs « Furniture Kit » et « Mini Characters » de [Kenney](https://www.kenney.nl) (www.kenney.nl), sous licence CC0. Les licences sont conservées à côté des fichiers.
 
 Limites connues : voir l'entrée 0.4.0 de `CHANGELOG.md`.
+
+## Mode « CI locale »
+
+Quand GitHub Actions n'est pas utilisable (quotas épuisés, CI désactivée), `.gepet-squad.json` peut porter la clé optionnelle `ci` :
+
+```json
+"ci": { "mode": "local", "commands": ["npm ci", "npm run lint", "npm test"] }
+```
+
+- `commands` est la liste ordonnée des contrôles, lancés à la racine du repo. Aucun agent ne crée, n'attend ni ne réactive de workflow GitHub Actions.
+- Le **développeur** les exécute avant d'ouvrir sa PR ; le **testeur** les rejoue sur la PR fusionnée avec `develop` et sert de barrière à la place de la CI (une commande en échec donne `FAIL`, détail dans une section « CI locale » de son commentaire) ; le **chef de projet** les rejoue sur `develop` avant la PR de release.
+- Sans la clé, ou avec `"mode": "github"`, rien ne change.
 
 ## Prérequis
 

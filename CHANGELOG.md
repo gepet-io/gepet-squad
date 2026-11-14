@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.9.0 — 2026-11-14
+
+Milestone M6, « Bonshommes vivants » : les agents de la vue `/gepet-squad-viz` deviennent de petits bonhommes qui travaillent.
+
+- **Bonhommes scriptés.** Chaque agent entre par la porte et marche jusqu'à son poste, tape au clavier pendant son travail, montre une bulle de verdict à son rapport, repart par la porte à sa fin et revient s'asseoir s'il est repris. Le tableau rôle → zone et état → geste est dans le README.
+- **Chef de projet permanent.** Il reste assis à son bureau, sans taper, et fait un geste à chaque changement de statut d'une feature, merge ou release (au plus un par seconde).
+- **`prefers-reduced-motion`.** Pas de marche : l'agent apparaît directement à son poste ou disparaît, les animations sont figées, seules les bulles et les dossiers changent.
+- **Capsule de remplacement.** Un modèle 3D qui ne se charge pas est remplacé par une capsule colorée selon le rôle.
+- **Retrait du bloom et des addons `postprocessing`.** Les repères lumineux, `agents.js`, `layout.js`, le bloom et les addons `postprocessing` de Three.js sont supprimés : le rendu est direct.
+- **Mode « CI locale ».** Clé optionnelle `ci` de `.gepet-squad.json` (`mode` `local` et liste `commands`) : sans GitHub Actions, le développeur lance les contrôles avant sa PR, le testeur les rejoue sur la PR fusionnée avec `develop` et sert de barrière, le chef de projet les rejoue sur `develop` avant la release.
+- Voir l'ADR 0011 pour la machine d'états.
+
 ## 0.8.0 — 2026-11-13
 
 Milestone M5, « Bureau 3D : décor et kanban » : la vue `/gepet-squad-viz` change de métaphore.
