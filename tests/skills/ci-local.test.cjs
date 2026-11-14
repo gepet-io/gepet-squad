@@ -40,7 +40,9 @@ describe("mode CI locale", () => {
   });
 
   test(".gepet-squad.json de ce repo : ci.commands est un tableau non vide de chaînes", () => {
-    const cfg = JSON.parse(read(".gepet-squad.json"));
+    const raw = read(".gepet-squad.json");
+    assert.equal(raw.match(/"ci"\s*:/g).length, 1, "clé ci dupliquée");
+    const cfg = JSON.parse(raw);
     assert.equal(cfg.ci.mode, "local");
     assert.ok(Array.isArray(cfg.ci.commands) && cfg.ci.commands.length > 0);
     for (const c of cfg.ci.commands) assert.ok(typeof c === "string" && c.trim() !== "");
