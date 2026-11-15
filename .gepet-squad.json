@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "repo": "gepets/claude-gepet-squad",
+  "repo": "gepet-io/gepet-squad",
   "layout": "monorepo",
   "scopes": {
     "repo": {
