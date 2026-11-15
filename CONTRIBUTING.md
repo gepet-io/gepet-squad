@@ -63,4 +63,4 @@ npm test          # node --test : tests/**/*.test.{cjs,mjs}
 bash -n scripts/bootstrap.sh
 ```
 
-Les helpers de test sont dans `tests/helpers/` : repo git temporaire avec worktree (`createTempRepo`), faux `gh` placé en tête du `PATH` (`installFakeGh`, avec `gh.cmd` pour Windows) et client SSE (`openSse`). La CI GitHub Actions (`.github/workflows/ci.yml`) lance ces mêmes commandes sur ubuntu et windows.
+Les helpers de test sont dans `tests/helpers/` : repo git temporaire avec worktree (`createTempRepo`), faux `gh` placé en tête du `PATH` (`installFakeGh`, avec `gh.cmd` pour Windows) et client SSE (`openSse`). Ces commandes sont aussi celles de `ci.commands` (`.gepet-squad.json`, `ci.mode` = `release`) : on les lance en local avant chaque PR vers `develop` ; la CI GitHub Actions (`.github/workflows/ci.yml`) ne les rejoue, sur ubuntu et windows, que sur la PR de release vers `main`.

@@ -196,12 +196,23 @@ export async function boot(doc = globalThis.document, win = globalThis.window, {
   if (textOnly) switchToText();
 
   // La connexion passe en premier : le flux est ouvert pendant que la scène se charge.
-  connect({
-    fetch: win.fetch.bind(win),
-    EventSource: win.EventSource,
-    onUpdate: render,
-    onConnection: (status) => ui.showConnection(els.connection, status),
-    onError: (error) => win.console.warn(`[gepet-squad-viz] ${error.message}`),
+  const open = () =>
+    connect({
+      fetch: win.fetch.bind(win),
+      EventSource: win.EventSource,
+      onUpdate: render,
+      onConnection: (status) => ui.showConnection(els.connection, status),
+      onError: (error) => win.console.warn(`[gepet-squad-viz] ${error.message}`),
+    });
+  let connection = open();
+  watchVisibility(doc, win, {
+    pause() {
+      connection?.close();
+      connection = null;
+    },
+    resume() {
+      if (connection === null) connection = open();
+    },
   });
   if (textOnly) return;
 
@@ -220,6 +231,38 @@ export async function boot(doc = globalThis.document, win = globalThis.window, {
     win.console.warn(`[gepet-squad-viz] scène 3D indisponible, repli texte : ${error.message}`);
     switchToText();
   }
+}
+
+/** Délai en arrière-plan avant de fermer le flux : un simple changement d'onglet ne coupe rien. */
+export const HIDDEN_PAUSE_MS = 60000;
+
+/**
+ * Onglet en arrière-plan depuis `delayMs` : `pause()` (le flux est fermé, le serveur cesse alors d'interroger GitHub).
+ * Onglet de nouveau visible : `resume()` (nouvelle connexion, qui relit `/state` et déclenche le recalage manqué).
+ * Sans `document.addEventListener` ni `visibilityState` (tests, vieux navigateurs), ne fait rien.
+ * @param {Document} doc
+ * @param {Window} win
+ * @param {{ pause: () => void, resume: () => void, delayMs?: number }} handlers
+ */
+export function watchVisibility(doc, win, { pause, resume, delayMs = HIDDEN_PAUSE_MS }) {
+  if (typeof doc?.addEventListener !== "function" || !("visibilityState" in doc)) return;
+  let timer = null;
+  doc.addEventListener("visibilitychange", () => {
+    if (doc.visibilityState === "hidden") {
+      if (timer === null) {
+        timer = win.setTimeout(() => {
+          timer = null;
+          pause();
+        }, delayMs);
+      }
+      return;
+    }
+    if (timer !== null) {
+      win.clearTimeout(timer);
+      timer = null;
+    }
+    resume();
+  });
 }
 
 /**

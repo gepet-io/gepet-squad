@@ -1,5 +1,9 @@
 # Conventions GitHub & Git de la squad
 
+> **Mode économe hybride** (`"suivi": "hybride"`) : tout ce fichier s'applique, sauf les commentaires de PR et d'issue (les rapports sont des fichiers, `mode-econome.md`), la CI et les packages.
+>
+> **Mode économe local** (`"mode": "econome"`) : rien de ce qui touche GitHub dans ce fichier ne s'applique (labels, issues, PR, milestones, commandes `gh`, push). Les équivalents locaux sont dans `mode-econome.md`. Les noms de branches et le format de `.gepet-squad.json` restent valables.
+
 ## Fichier de configuration du projet : `.gepet-squad.json`
 
 Créé par le bootstrap à la racine du repo principal et versionné sur `develop`. Sa présence active le hook garde-fou du plugin dans ce repo.
@@ -19,11 +23,16 @@ Créé par le bootstrap à la racine du repo principal et versionné sur `develo
 }
 ```
 
+Clé `"mode": "econome" | "normal"` : écrite par le bootstrap selon le choix de l'utilisateur en phase 0 (`--local` → `econome`). Absente sur un projet antérieur : mode normal. En mode économe, `ci.mode` vaut toujours `local` ; clé `"suivi": "local" | "hybride"` (absente : `local`). En économe local, `repo` vaut `"local"` ; en hybride, c'est le vrai `owner/repo` (`--hybride` → `econome` + `hybride`).
+
+Clé optionnelle `"packages": { "enabled": false | true }` (mode normal) : `true` seulement si l'utilisateur a accepté les packages au cadrage ; voir `tests-et-ci.md`. Absente : pas de package.
+
 Clé optionnelle `"graphify": { "enabled": true }` : active le graphe de connaissances du code (voir `graphify.md`). `graphify-out/` n'est jamais versionné.
 
-Clé optionnelle `"ci": { "mode": "github" | "local", "commands": ["…"] }` : elle règle où tournent les contrôles de qualité.
+Clé `"ci": { "mode": "release" | "local" | "github", "commands": ["…"] }` : elle règle où tournent les contrôles de qualité (table complète dans `tests-et-ci.md`).
 
-- Clé absente ou `"mode": "github"` : comportement par défaut, la CI est un workflow GitHub Actions.
+- `"mode": "release"` : **défaut du mode normal**, écrit par le bootstrap. Les features sont validées en local exactement comme en `local` (ci-dessous) ; GitHub Actions ne tourne que sur la PR `release/*` → `main`, une fois par milestone.
+- Clé absente ou `"mode": "github"` : ancien comportement, le workflow minimal de `tests-et-ci.md` tourne sur chaque PR vers `develop`. À ne choisir que sur demande explicite de l'utilisateur.
 - `"mode": "local"` : **aucune exécution GitHub Actions** (quotas épuisés, CI désactivée). `commands` est la liste **ordonnée** des contrôles (installation, lint, build, tests, vérifications de scripts), lancés **à la racine du repo**. Le développeur les exécute avant sa PR, le testeur les rejoue sur la PR fusionnée avec `develop` et sert de barrière à la place de la CI, le Chef de projet les rejoue sur `develop` avant la PR de release. Aucun agent ne crée, n'attend ni ne réactive de workflow.
 
 ```json
@@ -62,8 +71,10 @@ Ne jamais pousser directement sur `main`. Le hook `guard.cjs` bloque `git push �
 | `retry:1` / `retry:2` / `retry:3` | nombre d'échecs | `#f9d0c4` |
 | `scope:<sous-projet>` | créés à la publication de la roadmap | `#bfdadc` |
 
-**Une issue porte un seul label `status:*` à la fois.** Pour changer de statut :
+**Une issue porte un seul label `status:*` à la fois.** Une transition = **une seule** commande `gh issue edit`, qui retire et ajoute tous les labels concernés d'un coup (listes séparées par des virgules), statut et `retry:*` compris :
 `gh issue edit <n> --repo <REPO> --remove-label status:<ancien> --add-label status:<nouveau>`
+`gh issue edit <n> --repo <REPO> --remove-label status:in-test,retry:1 --add-label status:changes-requested,retry:2`
+Ne relis pas l'issue avant de la modifier : son statut courant est celui que tu as posé à la transition précédente.
 
 ## Commandes de référence
 
@@ -116,8 +127,11 @@ Closes #<n>
 ## Vérifications
 - Suite complète sur `develop` : <résultat>
 - Rapports de vérification et de tests : PASS sur toutes les PR
-- (seulement si `ci.mode` vaut `local`) CI locale sur develop : <N>/<N> commandes OK
+- Audit des dépendances : <aucune faille haute ou critique ; failles modérées ou basses : paquet (identifiant), … | outil absent>
+- (seulement si `ci.mode` vaut `local` ou `release`) CI locale sur develop : <N>/<N> commandes OK
+- (seulement si `ci.mode` vaut `release`) La CI GitHub Actions tourne sur cette PR : attendre qu'elle soit verte avant de merger.
 
 ## À faire par l'utilisateur
 Relire, puis merger cette PR sur `main`.
+(seulement si `packages.enabled`) Après le merge, publier la release pour construire le package : `gh release create v<x.y.z> --target main --generate-notes`.
 ```

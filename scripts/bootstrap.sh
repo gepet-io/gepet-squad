@@ -5,9 +5,59 @@
 #                                      → labels, main + develop, .gepet-squad.json
 #   bootstrap.sh <owner/repo> --sub    sous-repo en multi-repo (aucun clone local requis)
 #                                      → branche develop créée via l'API GitHub
+#   bootstrap.sh <owner/repo> --hybride mode économe hybride : comme le repo principal, mais
+#                                      .gepet-squad.json en econome + suivi hybride, sans CI ni package
+#   bootstrap.sh --local <nom>         mode économe : aucun appel à GitHub, aucun push
+#                                      → main + develop locales, .gepet-squad.json en mode econome
 set -euo pipefail
 
-REPO="${1:?usage: bootstrap.sh <owner/repo> [--sub]}"
+if [ "${1:-}" = "--local" ]; then
+  NAME="${2:?usage: bootstrap.sh --local <nom-du-projet>}"
+  git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "ERREUR: le répertoire courant n'est pas un repo Git (git init -b main)" >&2; exit 1; }
+
+  # main avec au moins un commit
+  if ! git rev-parse --verify --quiet HEAD >/dev/null; then
+    git switch -c main --quiet 2>/dev/null || true
+    [ -f README.md ] || printf '# %s\n' "$NAME" > README.md
+    git add README.md
+    git commit --quiet -m "chore: initial commit"
+    echo "main: commit initial"
+  fi
+  git show-ref --verify --quiet refs/heads/main || git branch main
+  if git show-ref --verify --quiet refs/heads/develop; then
+    git switch --quiet develop
+    echo "develop: déjà présente"
+  else
+    git switch --quiet -c develop main
+    echo "develop: créée depuis main"
+  fi
+
+  if [ ! -f .gepet-squad.json ]; then
+    cat > .gepet-squad.json <<EOF
+{
+  "version": 1,
+  "mode": "econome",
+  "repo": "local",
+  "name": "$NAME",
+  "layout": "monorepo",
+  "scopes": {},
+  "branches": { "integration": "develop", "production": "main" },
+  "maxParallelDevs": 3,
+  "maxRetries": 3,
+  "ci": { "mode": "local", "commands": [] }
+}
+EOF
+    git add .gepet-squad.json
+    git commit --quiet -m "chore(squad): initialise la configuration gepet-squad (mode économe)"
+    echo ".gepet-squad.json: créé (mode économe)"
+  else
+    echo ".gepet-squad.json: déjà présent"
+  fi
+  echo "OK: $NAME prêt en local (branche courante: develop, aucun remote utilisé)"
+  exit 0
+fi
+
+REPO="${1:?usage: bootstrap.sh <owner/repo> [--sub|--hybride] | bootstrap.sh --local <nom>}"
 MODE="${2:-main}"
 
 gh auth status >/dev/null 2>&1 || { echo "ERREUR: gh n'est pas authentifié. Lancez: gh auth login" >&2; exit 1; }
@@ -74,16 +124,28 @@ else
 fi
 
 # --- .gepet-squad.json ----------------------------------------------------------
+if [ "$MODE" = "--hybride" ]; then
+  # Économe hybride : issues et PR sur GitHub, rapports en fichiers, ni CI ni package.
+  MODE_LINES='  "mode": "econome",
+  "suivi": "hybride",'
+  TAIL_LINES='  "ci": { "mode": "local", "commands": [] }'
+else
+  MODE_LINES='  "mode": "normal",'
+  TAIL_LINES='  "ci": { "mode": "release", "commands": [] },
+  "packages": { "enabled": false }'
+fi
 if [ ! -f .gepet-squad.json ]; then
   cat > .gepet-squad.json <<EOF
 {
   "version": 1,
+$MODE_LINES
   "repo": "$REPO",
   "layout": "monorepo",
   "scopes": {},
   "branches": { "integration": "develop", "production": "main" },
   "maxParallelDevs": 3,
-  "maxRetries": 3
+  "maxRetries": 3,
+$TAIL_LINES
 }
 EOF
   git add .gepet-squad.json

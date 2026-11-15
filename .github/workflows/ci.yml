@@ -1,10 +1,16 @@
 name: CI
 
+# CI à la release (ci.mode = release, voir .gepet-squad.json) : les features sont validées en local par ci.commands,
+# GitHub Actions ne tourne que sur la PR release/* vers main. La matrice ubuntu × windows reste : le plugin vise
+# aussi Windows, et elle ne tourne qu'une fois par milestone.
 on:
   pull_request:
-    branches: [develop]
-  push:
-    branches: [develop]
+    branches: [main]
+    paths-ignore: ["docs/**", "**/*.md"]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -13,6 +19,7 @@ jobs:
   verifier:
     name: Lint et tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:

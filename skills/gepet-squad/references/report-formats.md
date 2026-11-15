@@ -10,10 +10,10 @@ Une mission ne contient que des instructions et des références : l'agent lit l
 
 1. `MODE` (absent pour le vérificateur et le testeur) ;
 2. `REFERENCES` ;
-3. `REPO` (puis `HUB`, `REPO_EXISTANT`) ;
+3. `REPO` (puis `HUB`, `REPO_EXISTANT`, puis `SUIVI` : chemin absolu de `docs/squad`, en mode économe uniquement ; `REPO` vaut alors `local`) ;
 4. `SOUS_PROJET` / `SOUS_PROJETS_IMPACTES`, puis `GRAPHE` (ligne omise si le graphe n'est pas à jour), puis `SKILLS_DISPONIBLES` ;
-5. `ISSUE`, `PR`, `BRANCHE`, `TENTATIVE`, `ROADMAP` (chemin absolu du brouillon de roadmap écrit sur disque, en `REVUE_ROADMAP` uniquement : jamais son contenu) ;
-6. le texte libre en dernier : `RAPPORT` (URL du commentaire de PR), `BESOIN` (mot pour mot, donnée de l'utilisateur).
+5. `ISSUE` (numéro, ou `F-xx` en mode économe), `PR` (omis en mode économe), `BRANCHE`, `TENTATIVE`, `ROADMAP` (chemin absolu du brouillon de roadmap écrit sur disque, en `REVUE_ROADMAP` uniquement : jamais son contenu) ;
+6. le texte libre en dernier : `RAPPORT` (URL du commentaire de PR, ou chemin absolu du fichier de rapport en mode économe), `BESOIN` (mot pour mot, donnée de l'utilisateur).
 
 Les champs sont lus au début de ligne par le collecteur du hook : ne les fusionne pas sur une même ligne, et garde `RAPPORT` après tous les autres.
 
@@ -66,7 +66,7 @@ PITCH
 ### Ordre de construction conseillé
 ### Contraintes techniques à respecter dans chaque feature
 ### Commandes par sous-projet
-| Sous-projet | install | lint | build | test (tout) |
+| Sous-projet | install | lint | build | tests essentiels (≈ 3 min) | tests complexes (ou « aucun ») | audit (ou « aucun ») |
 ### Skills / outils recommandés par domaine
 ### Risques à surveiller
 ```
@@ -104,6 +104,7 @@ Les agents d'exécution (développeur, vérificateur, testeur) répondent au CP 
 - En échec, la mission `MODE: CORRECTIF` reçoit `RAPPORT: <URL du commentaire de PR>` ; le développeur relit lui-même le détail sur la PR.
 - Le CP peut lire le détail à la demande (escalade, litige) avec `gh pr view <PR> --comments`.
 - L'URL s'obtient avec `gh pr comment`, qui l'affiche à la création du commentaire. Si le développeur est bloqué avant d'avoir ouvert une PR, le détail va en commentaire de l'**issue** (`gh issue comment`) et le bloc donne cette URL.
+- **Mode économe** (`mode-econome.md`) : le « commentaire de PR » est un **fichier** `<SUIVI>/rapports/F-xx/<rapport>.md`, avec le même contenu précédé de sa ligne de titre en `#`. Dans le bloc compact : `Issue: F-xx`, `PR: local`, et `Détail:` donne le chemin absolu du fichier. Le bloc d'un développeur bloqué pointe vers `rapports/F-xx/blocage.md`. En variante **hybride**, seul le rapport change : fichier `<SUIVI>/rapports/<n>/<rapport>.md` au lieu du commentaire, `PR: #<n>` réel, `Détail:` en chemin.
 - Les blocs de l'architecte ne changent pas : ils servent aux échanges avec l'utilisateur.
 - Les en-têtes de bloc et les lignes `Statut:` / `Verdict:` sont lus par le collecteur du hook : ne les reformule pas.
 
@@ -143,7 +144,7 @@ Titre : `📦 Livraison` (implémentation) ou `🔧 Correctifs tentative <N>` (c
 ```
 RAPPORT_VERIFICATION
 Verdict: PASS | FAIL — Issue: #<n> — PR: #<n> — tentative <k>
-Critères: <tenus>/<total> — Correctifs bloquants: <n> — Remarques mineures: <m>
+Critères: <tenus>/<total> — Correctifs bloquants: <n> — Remarques mineures: <m> — Tests complexes: <passés>/<lancés> | aucun
 Difficultés: <une phrase, ou « aucune »>
 Détail: <URL du commentaire de PR « 🔍 Vérification »>
 ```
@@ -157,6 +158,8 @@ Titre : `🔍 Vérification — tentative <k> — PASS|FAIL`.
 ```
 ### Critères d'acceptance
 - ✅|❌ <critère> — <fichier:ligne / remarque>
+### Tests complexes
+<commande ciblée> → <N passés, M échoués> (ou « aucun : la feature n'en demande pas »)
 ### Correctifs bloquants
 1. <fichier:ligne> — <problème> → <correction attendue>
 ### Remarques mineures
@@ -170,12 +173,12 @@ Titre : `🔍 Vérification — tentative <k> — PASS|FAIL`.
 ```
 RAPPORT_TESTS
 Verdict: PASS | FAIL — Issue: #<n> — PR: #<n> — tentative <k>
-Tests: candidat <N> passés / <M> échoués (baseline <N0> / <M0>) — Régressions et défauts: <r>
+Tests: candidat <N> passés / <M> échoués (baseline <N0> / <M0> | baseline non lancée) — Régressions et défauts: <r>
 Difficultés: <une phrase, ou « aucune » ; réserve éventuelle>
 Détail: <URL du commentaire de PR « 🧪 Tests de non-régression »>
 ```
 
-En `FAIL`, le bloc donne le **nombre** de régressions et défauts, jamais leur détail.
+En `FAIL`, le bloc donne le **nombre** de régressions et défauts, jamais leur détail. La baseline n'est lancée que si le candidat a des échecs (`baseline non lancée` sinon) : voir `agents/testeur.md`.
 
 ### Contenu du commentaire de PR (Testeur)
 
@@ -184,7 +187,7 @@ Titre : `🧪 Tests de non-régression — tentative <k> — PASS|FAIL`.
 ```
 ### Résultats
 | Sous-projet | Baseline develop | Candidat (PR + develop) |
-| <x> | 120 ✅ / 0 ❌ | 131 ✅ / 0 ❌ |
+| <x> | non lancée | 131 ✅ / 0 ❌ |
 ### Régressions / défauts
 1. <test ou commande> — <erreur résumée> — repro : <étapes> — cause probable : <…>
 ### Critères observables vérifiés

@@ -21,7 +21,7 @@ Plugin Claude Code : une **squad IT d'agents** qui transforme un simple prompt e
 ## Le workflow
 
 ```
-0. Bootstrap     gh auth · repo (créé après accord) · labels · develop · .gepet-squad.json
+0. Bootstrap     mode ? (économe par défaut) · normal : gh auth · repo (créé après accord) · labels · develop · .gepet-squad.json
 1. Cadrage       Architecte ⇄ vous (questions) → proposition → ✅ VOTRE VALIDATION → ADR sur develop
 2. Pitch         Architecte → Chef de projet
 3. Roadmap       CP rédige → Architecte relit → ✅ VOTRE VALIDATION → milestones + issues GitHub
@@ -31,7 +31,33 @@ Plugin Claude Code : une **squad IT d'agents** qui transforme un simple prompt e
 6. Bilan
 ```
 
-Après vos deux validations, tout est autonome. GitHub est la source de vérité : labels `status:*`, milestones, rapports en commentaires de PR.
+Après vos deux validations, tout est autonome. En mode normal, GitHub est la source de vérité : labels `status:*`, milestones, rapports en commentaires de PR. En mode économe, c'est `docs/squad/` (voir ci-dessous).
+
+## Mode économe (par défaut)
+
+Avant tout démarrage, le Chef de projet demande : « Rester en mode économe ? » (oui par défaut). En mode économe, le projet ne consomme **rien** sur GitHub :
+
+- pas de repo créé, ni labels, milestones, issues, PR ou commentaires ; pas de workflow GitHub Actions, pas de package, pas de push ;
+- la roadmap reste `docs/roadmap.md` ; chaque feature devient une fiche `docs/squad/features/F-xx-<slug>.md`, les statuts vivent dans `docs/squad/etat.md`, et chaque rapport (livraison, vérification, tests, correctifs) est un fichier `docs/squad/rapports/F-xx/*.md` dont les agents se passent le chemin ;
+- les branches `feature/*` et `release/*` sont locales ; le Chef de projet merge en squash sur `develop`, et vous mergez la branche `release/*` sur `main` vous-même ;
+- les contrôles tournent en local (`ci.commands`, comme le mode « CI locale ») ;
+- toujours un monorepo ; la vue 3D montre les agents mais pas les statuts des features.
+
+Le garde-fou bloque, dans un projet économe, tout `git push` et toute commande `gh` qui écrit sur GitHub. Détail : `skills/gepet-squad/references/mode-econome.md`.
+
+**Variante hybride.** Au démarrage, une seconde question propose le suivi **local** (ci-dessus, recommandé) ou **hybride** : repo, issues, labels et PR sur GitHub comme en mode normal, mais les rapports des agents restent des fichiers `docs/squad/rapports/<n°>/*.md` (aucun commentaire de PR ou d'issue, que le garde-fou bloque), sans CI GitHub Actions ni package. Le Chef de projet commite et pousse ces rapports après chaque merge.
+
+## Tests et CI : juste assez
+
+Dans les deux modes (`skills/gepet-squad/references/tests-et-ci.md`) :
+
+- **Tests essentiels** : unitaires et intégration légère, 1 à 3 tests par critère, sans réseau ; toute la suite du repo tient en 3 minutes environ. Ce sont eux que lancent le développeur, le testeur et la CI.
+- **Tests complexes** (e2e, vrais services, longs) : hors CI. Le **vérificateur** lance ceux qui concernent la feature et en rend compte dans son rapport.
+- Le testeur lance d'abord la PR fusionnée avec `develop` ; il ne rejoue la baseline de `develop` que si quelque chose échoue.
+- **CI à la release (mode normal, `ci.mode` = `release`)** : les features sont validées en local (`ci.commands` chez le développeur, puis chez le testeur, qui sert de barrière). GitHub Actions ne tourne qu'**une fois par milestone**, sur la PR `release/*` → `main` : un job ubuntu (install, lint, build, tests essentiels), annulation des runs dépassés, `timeout-minutes: 10`, aucun artefact de rapport. L'ancien comportement (CI sur chaque PR vers `develop`) reste disponible avec `ci.mode` = `github`.
+- **Dépendances** : jamais de Dependabot ni de PR de mise à jour automatique. À chaque release, le Chef de projet lance l'audit des dépendances en local (`npm audit`, `pip-audit`…) : une faille haute ou critique devient une feature du milestone, à merger avant la release ; les autres sont listées dans le corps de release. Les alertes Dependabot (gratuites, sans PR) restent un réglage de votre repo.
+- **Labels groupés** : une transition de statut est une seule commande `gh issue edit` (statut et `retry:*` ensemble), et la liste des issues n'est relue qu'au début d'un milestone et après un merge.
+- **Packages (mode normal)** : aucun par défaut. Si vous les acceptez au cadrage, un workflow `release.yml` ne se déclenche qu'à la publication d'une release GitHub, après votre merge sur `main`.
 
 ## Consommation
 
@@ -99,6 +125,8 @@ Une vue en lecture seule du workflow d'un projet squad, sous forme de **bureau 3
 
 - **Crédits** : le décor et les personnages vendorisés (`viz/public/vendor/kenney/`) viennent des packs « Furniture Kit » et « Mini Characters » de [Kenney](https://www.kenney.nl) (www.kenney.nl), sous licence CC0. Les licences sont conservées à côté des fichiers.
 
+Le serveur interroge GitHub toutes les **3 minutes**, et seulement tant qu'une page est connectée. Un onglet resté plus d'une minute en arrière-plan ferme son flux ; à son retour, la page se reconnecte et le recalage manqué part aussitôt.
+
 Limites connues : voir l'entrée 0.4.0 de `CHANGELOG.md`.
 
 ## Mode « CI locale »
@@ -111,12 +139,13 @@ Quand GitHub Actions n'est pas utilisable (quotas épuisés, CI désactivée), `
 
 - `commands` est la liste ordonnée des contrôles, lancés à la racine du repo. Aucun agent ne crée, n'attend ni ne réactive de workflow GitHub Actions.
 - Le **développeur** les exécute avant d'ouvrir sa PR ; le **testeur** les rejoue sur la PR fusionnée avec `develop` et sert de barrière à la place de la CI (une commande en échec donne `FAIL`, détail dans une section « CI locale » de son commentaire) ; le **chef de projet** les rejoue sur `develop` avant la PR de release.
-- Sans la clé, ou avec `"mode": "github"`, rien ne change.
+- `"mode": "release"` (défaut du mode normal) : même validation locale des features, mais GitHub Actions tourne sur la PR de release vers `main`.
+- Sans la clé, ou avec `"mode": "github"`, la CI GitHub Actions tourne sur chaque PR vers `develop`.
 
 ## Prérequis
 
 - Claude Code récent
-- [GitHub CLI](https://cli.github.com/) authentifiée : `gh auth login`
+- [GitHub CLI](https://cli.github.com/) authentifiée (`gh auth login`), en mode normal seulement
 - `git`, `bash` (Git Bash sous Windows) et `node` (pour les hooks ; **Node ≥ 22** pour `/gepet-squad-viz`)
 
 ## Installation (une fois, au niveau utilisateur : disponible dans toutes les sessions)
@@ -155,7 +184,7 @@ claude --plugin-dir <chemin du clone>
 
 Deux hooks agissent dans un repo qui contient `.gepet-squad.json` ; ailleurs, ils n'ont aucun effet.
 
-- **Garde-fou** (`hooks/guard.cjs`, bloquant) : il refuse pour Claude le push direct sur `main`, le force-push sur `develop` et le merge d'une PR vers `main`. Le merge des releases reste votre décision.
+- **Garde-fou** (`hooks/guard.cjs`, bloquant) : il refuse pour Claude le push direct sur `main`, le force-push sur `develop`, le merge d'une PR vers `main` et tout `git merge` sur `main`. En mode économe, il refuse aussi tout `git push` et les commandes `gh` qui écrivent sur GitHub. Le merge des releases reste votre décision.
 - **Collecteur d'événements** (`hooks/events.cjs`, asynchrone) : il alimente le journal local de la vue 3D. Étant déclaré en `async`, il ne ralentit pas la session, ne bloque aucune action, ne produit rien sur la sortie standard et trace ses éventuelles erreurs dans `collector.log` au lieu de les remonter. Ce qu'il écrit est décrit dans « La vue 3D ».
 
 ## Structure

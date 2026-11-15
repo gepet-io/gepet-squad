@@ -5,7 +5,7 @@ import { test, describe } from "node:test";
 import fs from "node:fs";
 import assert from "node:assert/strict";
 
-import { connect } from "../../viz/public/js/main.js";
+import { connect, watchVisibility } from "../../viz/public/js/main.js";
 import { MAX_PENDING_MESSAGES } from "../../viz/public/js/sync.js";
 import { agent, at, ev, feature, stateOf } from "./support.mjs";
 
@@ -342,5 +342,54 @@ describe("bonhommes", () => {
     assert.match(source, /forcesFallback\(win\.location\?\.search\)/);
     assert.match(source, /webglAvailable\(doc\)/);
     assert.match(source, /if \(textOnly\) return;/);
+  });
+});
+
+describe("watchVisibility : flux fermé quand l'onglet reste en arrière-plan", () => {
+  function fakes() {
+    const listeners = [];
+    const doc = { visibilityState: "visible", addEventListener: (type, fn) => listeners.push({ type, fn }) };
+    const timers = new Map();
+    let next = 1;
+    const win = {
+      setTimeout: (fn) => (timers.set(next, fn), next++),
+      clearTimeout: (id) => timers.delete(id),
+    };
+    const fire = (state) => {
+      doc.visibilityState = state;
+      for (const l of listeners) if (l.type === "visibilitychange") l.fn();
+    };
+    const runTimers = () => {
+      const pending = [...timers.values()];
+      timers.clear();
+      for (const fn of pending) fn();
+    };
+    return { doc, win, fire, runTimers, timers };
+  }
+
+  test("en arrière-plan au-delà du délai : pause ; de retour : resume", () => {
+    const { doc, win, fire, runTimers } = fakes();
+    const calls = [];
+    watchVisibility(doc, win, { pause: () => calls.push("pause"), resume: () => calls.push("resume") });
+    fire("hidden");
+    assert.deepEqual(calls, [], "rien avant la fin du délai");
+    runTimers();
+    assert.deepEqual(calls, ["pause"]);
+    fire("visible");
+    assert.deepEqual(calls, ["pause", "resume"]);
+  });
+
+  test("un retour avant la fin du délai annule la pause", () => {
+    const { doc, win, fire, timers } = fakes();
+    const calls = [];
+    watchVisibility(doc, win, { pause: () => calls.push("pause"), resume: () => calls.push("resume") });
+    fire("hidden");
+    fire("visible");
+    assert.equal(timers.size, 0);
+    assert.deepEqual(calls, ["resume"]);
+  });
+
+  test("sans API de visibilité, ne fait rien", () => {
+    assert.doesNotThrow(() => watchVisibility({}, {}, { pause() {}, resume() {} }));
   });
 });

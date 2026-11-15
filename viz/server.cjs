@@ -64,7 +64,7 @@ const {
   waitForLock,
 } = require("./lib/lock.cjs");
 
-const SNAPSHOT_INTERVAL_MS = 60000;
+const SNAPSHOT_INTERVAL_MS = 180000;
 const DEFAULT_PUBLIC_DIR = path.join(__dirname, "public");
 const GH_CODE = /^GH_[A-Z]+$/;
 
@@ -305,7 +305,7 @@ function locateProject(project) {
  * @param {string} options.project dossier du projet gepet-squad
  * @param {number} options.port port d'écoute (0 = automatique)
  * @param {string} options.publicDir fichiers statiques
- * @param {number} [options.snapshotIntervalMs] période du recalage GitHub (60 000 ms) ; injectable pour les tests
+ * @param {number} [options.snapshotIntervalMs] période du recalage GitHub (180 000 ms, sauté sans client connecté) ; injectable pour les tests
  * @param {number} [options.pollIntervalMs] période du suivi du journal (500 ms)
  * @param {number} [options.heartbeatMs] période du battement SSE (15 000 ms)
  * @param {number} [options.generation] génération initiale du journal (l'horloge : voir tail.cjs)
@@ -379,18 +379,31 @@ async function startServer({
     if (plan.snapshot) initial.push(snapshotMessage());
     else if (plan.after !== null) for (const entry of replay) if (entry.offset > plan.after) initial.push(entry.message);
     hub.open(res, initial);
+    recalibrateIfMissed();
   };
 
   // Recalage : un instantané GitHub à intervalle fixe (la prochaine tentative part à la fin de la précédente, donc
   // sans chevauchement). En cas d'échec, le dernier instantané est conservé et un `warning` est poussé.
+  // Sans client connecté (page fermée ou onglet en arrière-plan), le recalage est sauté pour ne pas consommer d'appels
+  // GitHub ; le premier client qui se reconnecte déclenche aussitôt le recalage manqué.
   let closed = false;
   let recalTimer = null;
+  let inFlight = false;
+  let missed = false;
   const scheduleRecalibration = () => {
     if (closed) return;
     recalTimer = setTimeout(recalibrate, snapshotIntervalMs);
     recalTimer.unref();
   };
   async function recalibrate() {
+    recalTimer = null;
+    if (hub.size === 0) {
+      missed = true;
+      scheduleRecalibration();
+      return;
+    }
+    missed = false;
+    inFlight = true;
     try {
       const next = await fetchSnapshot({ cwd: root });
       if (closed) return;
@@ -402,8 +415,15 @@ async function startServer({
       const warning = recordFailure(error);
       warnings = [warning];
       hub.broadcast(formatSse({ event: "warning", data: warning }));
+    } finally {
+      inFlight = false;
     }
     scheduleRecalibration();
+  }
+  function recalibrateIfMissed() {
+    if (closed || inFlight || !missed) return;
+    if (recalTimer !== null) clearTimeout(recalTimer);
+    recalibrate();
   }
   scheduleRecalibration();
 

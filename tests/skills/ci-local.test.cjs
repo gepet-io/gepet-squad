@@ -11,7 +11,7 @@ const read = (...p) => fs.readFileSync(path.join(ROOT, ...p), "utf8");
 describe("mode CI locale", () => {
   test("github-conventions.md documente ci.mode, ci.commands et la ligne de PR de release", () => {
     const doc = read("skills", "gepet-squad", "references", "github-conventions.md");
-    assert.match(doc, /"ci": \{ "mode": "github" \| "local", "commands"/);
+    assert.ok(doc.includes('"ci": { "mode": "release" | "local" | "github", "commands"'), "valeurs de ci.mode");
     assert.match(doc, /`commands`/);
     assert.match(doc, /CI locale sur develop : <N>\/<N> commandes OK/);
   });
@@ -43,7 +43,7 @@ describe("mode CI locale", () => {
     const raw = read(".gepet-squad.json");
     assert.equal(raw.match(/"ci"\s*:/g).length, 1, "clé ci dupliquée");
     const cfg = JSON.parse(raw);
-    assert.equal(cfg.ci.mode, "local");
+    assert.ok(["local", "release"].includes(cfg.ci.mode), cfg.ci.mode);
     assert.ok(Array.isArray(cfg.ci.commands) && cfg.ci.commands.length > 0);
     for (const c of cfg.ci.commands) assert.ok(typeof c === "string" && c.trim() !== "");
   });

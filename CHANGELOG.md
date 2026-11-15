@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.10.0 — 2026-11-15
+
+Version économe : un projet peut tourner sans rien consommer sur GitHub, et les tests sont allégés dans les deux modes.
+
+- **Choix du mode au démarrage.** Avant tout démarrage, le Chef de projet demande « Rester en mode économe ? » (oui par défaut). Le choix est écrit dans `.gepet-squad.json` (`"mode": "econome" | "normal"`) ; un projet existant sans la clé reste en mode normal.
+- **Mode économe** (nouvelle référence `mode-econome.md`). Ni repo créé, ni labels, milestones, issues, PR, commentaires, workflow ou package, ni push. Roadmap dans `docs/roadmap.md`, une fiche par feature dans `docs/squad/features/`, statuts dans `docs/squad/etat.md`, rapports dans `docs/squad/rapports/F-xx/*.md`, note de release dans `docs/squad/releases/`. Les missions reçoivent le nouveau champ `SUIVI` (chemin absolu de `docs/squad`), `ISSUE: F-xx`, pas de `PR`, et `RAPPORT` devient un chemin ; dans les blocs Flash, `PR: local` et `Détail:` donne le chemin du fichier. Branches locales, merge squash local par le CP, release mergée sur `main` par l'utilisateur. Toujours un monorepo, CI locale toujours active.
+- **`bootstrap.sh --local <nom>`** : branches `main` et `develop` locales et `.gepet-squad.json` économe, sans `gh` ni push. Le bootstrap normal écrit désormais `"mode": "normal"` et `"packages": { "enabled": false }`.
+- **Garde-fou.** Bloque tout `git merge` sur `main` (dans les deux modes) ; en mode économe, bloque aussi tout `git push` et les commandes `gh` qui écrivent sur GitHub. Nouveau `tests/hooks/guard.test.cjs`.
+- **Tests sobres** (nouvelle référence `tests-et-ci.md`). Deux niveaux : tests **essentiels** (1 à 3 tests par critère, sans réseau, environ 3 min pour tout le repo) lancés par le développeur, le testeur et la CI ; tests **complexes** (e2e, vrais services, longs) hors CI, lancés de façon ciblée par le **vérificateur**, dont le bloc gagne `Tests complexes: <passés>/<lancés> | aucun`. Nouvelle règle 7 de `feature-template.md`, colonnes « tests essentiels » et « tests complexes » dans les commandes de l'architecture et du PITCH.
+- **Testeur : candidat d'abord.** La baseline de `develop` n'est lancée que si le candidat a des échecs (`baseline non lancée` sinon).
+- **Économe hybride.** Seconde question de la phase 0 (`"suivi": "local" | "hybride"`, local par défaut). En hybride : repo, labels, issues et PR sur GitHub comme en mode normal, mais rapports en fichiers `docs/squad/rapports/<n°>/`, ni CI ni package ; `bootstrap.sh <owner/repo> --hybride` ; le garde-fou y bloque `gh pr comment`, `gh issue comment` et `gh pr review`.
+- **CI à la release (mode normal).** Nouveau `ci.mode` = `release`, écrit par défaut par le bootstrap normal : les features sont validées en local par `ci.commands` (développeur, puis testeur comme barrière) et GitHub Actions ne tourne que sur la PR `release/*` → `main`, une fois par milestone. Le workflow minimal : un job ubuntu sans matrice, `concurrency` avec annulation, `paths-ignore` sur la doc, `timeout-minutes: 10`, et seulement install, lint, build, tests essentiels. Plus aucun `upload-artifact` : les rapports sont ceux du vérificateur et du testeur. `ci.mode` = `github` garde l'ancien comportement.
+- **Audit des dépendances à la release, sans Dependabot.** La squad ne crée jamais de `dependabot.yml` ni de PR de mise à jour automatique. L'architecture donne une commande « audit » par sous-projet ; le CP la lance sur `develop` avant chaque release, dans tous les modes. Faille haute ou critique : nouvelle feature `type:tech` du milestone, que la release attend ; les autres sont listées dans le corps de release.
+- **Labels groupés.** Une transition = une seule commande `gh issue edit` (statut et `retry:*` ensemble), sans relire l'issue ; `gh issue list` seulement au début d'un milestone et après un merge.
+- **Vue 3D plus sobre.** Recalage GitHub toutes les 3 minutes (au lieu de 60 s), sauté tant qu'aucune page n'est connectée et rattrapé dès la reconnexion ; la page ferme son flux après une minute en arrière-plan et se reconnecte à son retour.
+- **CI de ce repo.** `.github/workflows/ci.yml` ne tourne plus que sur les PR vers `main` (matrice ubuntu × windows gardée, une fois par release), avec `concurrency`, `paths-ignore` et `timeout-minutes` ; `.gepet-squad.json` passe en `ci.mode` = `release`.
+- **Packages (mode normal).** Aucun par défaut. Question au cadrage (non par défaut) ; en cas d'accord, `release.yml` ne se déclenche qu'à la publication d'une release GitHub par l'utilisateur, après son merge sur `main`.
+- `/gepet-squad-resume` et `/gepet-squad-status` lisent `docs/squad/etat.md` en mode économe.
+
+**Limites connues :** ces changements sont des consignes de prompt, pas encore exécutées sur un cycle squad complet en mode économe. La vue `/gepet-squad-viz` ne montre pas les statuts des features d'un projet économe (elle les lit sur GitHub).
+
 ## 0.9.1 — 2026-11-15
 
 Le repo devient public sous le nom `gepet-io/gepet-squad`, sous licence MIT. Aucun changement de comportement des agents.

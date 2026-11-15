@@ -50,7 +50,7 @@ flowchart LR
   H1 & H2 & H3 & H4 --> C["hooks/events.cjs<br/>(collecteur async)"]
   C -->|append| J[("&lt;git-common-dir&gt;/gepet-squad/events.jsonl")]
   S["viz/server.cjs<br/>(node:http, 127.0.0.1)"] -->|tail| J
-  S -->|"execFile gh (démarrage + 60 s)"| GH[("GitHub<br/>source de vérité")]
+  S -->|"execFile gh (démarrage + 180 s, si un client est connecté)"| GH[("GitHub<br/>source de vérité")]
   S -->|"GET /state · SSE /events · assets .glb"| B["Navigateur<br/>viz/public : bureau 3D<br/>(Three.js + assets Kenney vendorés)"]
   K["skills/gepet-squad-viz<br/>/gepet-squad-viz [stop]"] -->|démarre / arrête| S
 ```
@@ -61,7 +61,7 @@ flowchart LR
 2. par `PreToolUse` sur `SubagentHandback`, émis dans le subagent : `tool_input.message` contient le bloc de rapport (verdict, statut) ;
 3. par les commandes `gh` que le CP lance après chaque rapport (transition `status:*`, merge, close) : elles font foi pour l'état des features ;
 4. en repli, par `PostToolUse` sur `Agent` avec `status: "completed"`, pour les agents lancés en mode synchrone ;
-5. en dernier recours, par le recalage GitHub toutes les 60 s, qui corrige toute dérive.
+5. en dernier recours, par le recalage GitHub toutes les 180 s (sauté tant qu'aucune page n'est connectée, rattrapé à la reconnexion), qui corrige toute dérive.
 
 La capture réelle du 2026-10-30 confirme les points 1 et 2 en arrière-plan. Elle montre aussi qu'un agent repris par `SendMessage` enchaîne plusieurs cycles début → fin pour un même `agentId` : le cycle de vie n'est donc **pas monotone** ([ADR 0008](adr/0008-reprise-agent-cycle-non-monotone.md)).
 
