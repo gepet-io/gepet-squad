@@ -124,24 +124,22 @@ Quand GitHub Actions n'est pas utilisable (quotas épuisés, CI désactivée), `
 Dans Claude Code :
 
 ```
-/plugin marketplace add D:\DevClaude\claude-gepet-squad
-/plugin install gepet-squad@claude-gepet-squad
+/plugin marketplace add gepet-io/gepet-squad
+/plugin install gepet-squad@gepet-squad
 ```
 
-Le plugin s'appelle `gepet-squad` ; le repo GitHub et la marketplace gardent le nom `claude-gepet-squad`.
-
-Sur une autre machine, utilisez le repo GitHub : `/plugin marketplace add gepets/claude-gepet-squad`.
+Pour travailler sur le plugin lui-même, ajoutez plutôt la marketplace depuis votre clone : `/plugin marketplace add <chemin du clone>`.
 
 ## Mettre à jour après une modification
 
 1. Augmentez `version` dans `.claude-plugin/plugin.json` et complétez `CHANGELOG.md`.
 2. Commitez (et poussez si le repo est sur GitHub).
-3. Dans Claude Code : `/plugin marketplace update claude-gepet-squad`, puis redémarrez la session.
+3. Dans Claude Code : `/plugin marketplace update gepet-squad`, puis redémarrez la session.
 
 Pour tester une modification sans toucher la version installée :
 
 ```bash
-claude --plugin-dir D:\DevClaude\claude-gepet-squad
+claude --plugin-dir <chemin du clone>
 ```
 
 ## Personnalisation
@@ -172,3 +170,7 @@ viz/              server.cjs (serveur local, CLI start / status / stop), lib/, p
 docs/             architecture (ARCHITECTURE.md, ADR) et roadmap
 tests/            tests node:test (hooks, viz-server, viz-web, skills)
 ```
+
+## Licence
+
+[MIT](LICENSE). Les assets Kenney vendorisés sont sous CC0 et Three.js sous MIT : leurs licences sont à côté des fichiers, dans `viz/public/vendor/`.

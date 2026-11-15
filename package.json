@@ -1,8 +1,9 @@
 {
-  "name": "claude-gepet-squad-tooling",
+  "name": "gepet-squad-tooling",
   "version": "0.0.0",
   "private": true,
-  "description": "Outillage de développement (lint, tests) du plugin claude-gepet-squad. Jamais exécuté chez l'utilisateur du plugin.",
+  "license": "MIT",
+  "description": "Outillage de développement (lint, tests) du plugin gepet-squad. Jamais exécuté chez l'utilisateur du plugin.",
   "engines": {
     "node": ">=22.13"
   },

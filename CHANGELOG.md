@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.9.1 — 2026-11-15
+
+Le repo devient public sous le nom `gepet-io/gepet-squad`, sous licence MIT. Aucun changement de comportement des agents.
+
+- **Licence MIT** : nouveau fichier `LICENSE`, `"license": "MIT"` dans `plugin.json` (au lieu de `UNLICENSED`), avec `homepage` et `repository`.
+- **Repo et marketplace renommés.** Le repo passe de `gepets/claude-gepet-squad` à `gepet-io/gepet-squad`, et la marketplace s'appelle désormais `gepet-squad`. Le préfixe `claude-gepet-squad:` reste accepté pour relire les anciens journaux.
+- `.claude/worktrees/` (worktrees des agents) est ignoré par git.
+
+**Migration** (sur chaque machine où le plugin est installé) :
+
+1. `/plugin uninstall gepet-squad@claude-gepet-squad` ;
+2. `/plugin marketplace remove claude-gepet-squad` ;
+3. `/plugin marketplace add gepet-io/gepet-squad`, puis `/plugin install gepet-squad@gepet-squad`, et redémarrer la session.
+
 ## 0.9.0 — 2026-11-14
 
 Milestone M6, « Bonshommes vivants » : les agents de la vue `/gepet-squad-viz` deviennent de petits bonhommes qui travaillent.
