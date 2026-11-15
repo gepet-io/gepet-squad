@@ -40,7 +40,7 @@ Créez `skills/<nom>/SKILL.md` avec un frontmatter `name`, `description` et éve
 2. Une entrée dans `CHANGELOG.md`.
 3. `claude plugin validate .`
 4. Commit, puis push.
-5. Sur chaque machine : `/plugin marketplace update claude-gepet-squad`, puis redémarrer Claude Code.
+5. Sur chaque machine : `/plugin marketplace update gepet-squad`, puis redémarrer Claude Code.
 
 ## Mettre à jour les assets 3D
 
