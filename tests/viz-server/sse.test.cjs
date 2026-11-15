@@ -533,14 +533,30 @@ describe("GET /events : recalage GitHub", () => {
     setGh(okRoutes().map((r) => ({ ...r, delayMs: 200 })));
     const repo = squadRepo();
     const callsBefore = fakeGh.calls().length;
-    await runServer({ repo, snapshotIntervalMs: 10 });
+    const { url } = await runServer({ repo, snapshotIntervalMs: 10 });
     const startupCalls = fakeGh.calls().length - callsBefore;
+    await connect(url); // sans client, le recalage est sauté
     await new Promise((resolve) => setTimeout(resolve, 1500));
     const recalibrations = (fakeGh.calls().length - callsBefore - startupCalls) / 5; // 5 appels gh par instantané
     // Chaque instantané dure au moins 200 ms : au plus 7 en 1,5 s. Avec un minuteur qui se chevauche (période de
     // 10 ms), on en aurait une centaine.
     assert.ok(recalibrations <= 8, `${recalibrations} recalages en 1,5 s`);
     assert.ok(recalibrations >= 1);
+  });
+
+  test("sans client connecté, aucun appel gh ; le premier client déclenche aussitôt le recalage manqué", async () => {
+    const repo = squadRepo();
+    const callsBefore = fakeGh.calls().length;
+    const { url } = await runServer({ repo, snapshotIntervalMs: 50 });
+    const afterStartup = fakeGh.calls().length;
+    assert.ok(afterStartup > callsBefore, "instantané initial au démarrage");
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    assert.equal(fakeGh.calls().length, afterStartup, "aucun recalage sans client");
+
+    const client = await connect(url);
+    await client.waitFor((events) => names(events).includes("snapshot"), 2000);
+    assert.ok(fakeGh.calls().length > afterStartup, "recalage rattrapé à la connexion");
+    client.close();
   });
 });
 

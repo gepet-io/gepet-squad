@@ -8,7 +8,7 @@ Ce repo **est** un plugin Claude Code, et aussi sa propre marketplace (`.claude-
 - `agents/*.md` sont les rôles. Chacun reçoit une mission en `CHAMP: valeur` (MODE, REPO, ISSUE, PR, BRANCHE, REFERENCES…) et répond **uniquement** avec un bloc défini dans `skills/gepet-squad/references/report-formats.md`.
 - `report-formats.md` est le **contrat** entre l'orchestrateur et les agents. Si tu modifies un bloc, mets à jour à la fois l'agent qui le produit et la section du SKILL qui le lit.
 - Les agents reçoivent le chemin absolu des références dans `REFERENCES`. On n'utilise pas `${CLAUDE_PLUGIN_ROOT}` dans les agents, parce qu'il n'y est pas garanti. Dans les skills, `${CLAUDE_SKILL_DIR}` et `${CLAUDE_PLUGIN_ROOT}` sont disponibles.
-- L'état d'un projet vit sur GitHub (labels `status:*`, `retry:*`, milestones, commentaires de PR) et dans `.gepet-squad.json`. Tout nouvel état doit pouvoir être reconstruit par `gepet-squad-resume`.
+- L'état d'un projet vit sur GitHub (labels `status:*`, `retry:*`, milestones, commentaires de PR) et dans `.gepet-squad.json` ; en mode économe (`"mode": "econome"`), dans `docs/squad/` (`etat.md`, fiches, rapports Markdown), sans rien sur GitHub. Tout nouvel état doit pouvoir être reconstruit par `gepet-squad-resume` dans les deux modes : un changement de workflow se décline aussi dans `references/mode-econome.md`.
 
 ## Conventions
 

@@ -1,6 +1,6 @@
 ---
 name: gepet-squad-status
-description: Affiche l'avancement d'un projet de la squad gepet (milestones, features par statut, PR en cours, échecs et escalades, releases en attente) à partir de GitHub. Lecture seule.
+description: Affiche l'avancement d'un projet de la squad gepet (milestones, features par statut, PR en cours, échecs et escalades, releases en attente) à partir de GitHub, ou de docs/squad/etat.md en mode économe. Lecture seule.
 ---
 
 # Avancement du projet gepet-squad
@@ -8,6 +8,7 @@ description: Affiche l'avancement d'un projet de la squad gepet (milestones, fea
 Lecture seule : ne modifie rien, ne lance aucun agent.
 
 1. Lis `.gepet-squad.json` dans le répertoire courant pour obtenir `repo`. S'il est absent, réponds qu'aucun projet squad n'est présent ici.
+   **Mode économe local** (`"mode": "econome"` sans `"suivi": "hybride"`) : aucune commande `gh`. Lis `docs/squad/etat.md` (milestones et une ligne par feature, colonnes `Statut` et `Retry`) et `git branch --list "feature/*" "release/*"`, puis passe directement à l'affichage du point 3 (« PR » devient « Branche », une release en attente est un milestone `release prête`).
 2. Récupère :
    - `gh api "repos/<REPO>/milestones?state=all" --jq '.[] | {number,title,state,open_issues,closed_issues}'`
    - `gh issue list --repo <REPO> --state all --limit 500 --json number,title,state,labels,milestone`
