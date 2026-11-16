@@ -259,7 +259,8 @@ Quand toutes les issues du milestone sont fermées (mode économe : toutes ses f
 1. `git switch develop && git pull`, mets à jour le graphe si besoin (`graphify.md`), puis crée `release/m<k>-<slug>` et pousse-la.
    **CI locale ou à la release** (si `ci.mode` vaut `local` ou `release`) : avant de créer la branche `release/*`, exécute chaque commande de `ci.commands` sur `develop` à jour. N'ouvre la PR de release que si toutes passent ; sinon signale l'échec à l'utilisateur en une ligne et arrête-toi là. Renseigne la ligne `CI locale sur develop : <N>/<N> commandes OK` du corps de PR.
    **Audit des dépendances** (tous les modes, `tests-et-ci.md`) : lance ensuite la commande « audit » de chaque sous-projet sur `develop`. Une faille haute ou critique devient une feature `type:tech` du milestone courant, prête tout de suite, et la release attend son merge (retour en phase 4) ; les autres vont dans la ligne `Audit des dépendances` du corps de PR. Jamais de Dependabot.
-2. Ouvre la PR `release/m<k>-<slug>` → `main` avec le corps « PR de release » de `github-conventions.md`, puis ferme le milestone GitHub (`gh api -X PATCH repos/<REPO>/milestones/<num> -f state=closed`).
+2. **Consommation** : lance `node ${CLAUDE_PLUGIN_ROOT}/conso/cli.cjs --project <racine> --milestone "<titre>=<ids>"` avec **tous** les milestones du projet (un `--milestone` chacun) et `--focus "<titre exact du milestone livré>"` (identique à son `--milestone`), puis colle le résultat dans la section « Consommation » du corps de release. Un échec de la CLI ou des `warnings` ne bloquent jamais la release : la section le dit en une ligne.
+   Ouvre la PR `release/m<k>-<slug>` → `main` avec le corps « PR de release » de `github-conventions.md`, puis ferme le milestone GitHub (`gh api -X PATCH repos/<REPO>/milestones/<num> -f state=closed`).
 3. Annonce à l'utilisateur : le lien de la PR, ce qui a été livré, et ce qu'il doit faire (relire, puis merger sur `main` lui-même). Si `packages.enabled` vaut `true`, ajoute la commande à lancer **après** son merge pour publier la release et déclencher le packaging : `gh release create v<x.y.z> --target main --generate-notes`. Sinon, aucune release GitHub ni aucun package (`tests-et-ci.md`).
 4. **Graphify** : si `graphify.enabled`, `git switch develop && git pull` puis mets à jour le graphe de façon incrémentale, seulement si du code a changé (`graphify.md`).
 5. **N'attends pas** le merge : passe au milestone suivant (phase 4). La release ne bloque pas `develop`.
@@ -270,4 +271,5 @@ Quand le dernier milestone est livré, fais un bilan à l'utilisateur :
 
 - les milestones et leurs PR de release (mergées ou en attente) ;
 - les features livrées, le nombre de correctifs, les escalades ;
+- la consommation du projet : `node ${CLAUDE_PLUGIN_ROOT}/conso/cli.cjs --project <racine>` avec tous les `--milestone`, sans `--focus`, pour le total du projet (un échec ou des `warnings` ne bloquent pas le bilan : dis-le en une ligne) ;
 - les écarts avec le besoin initial, les limites connues et les suites possibles.
