@@ -131,6 +131,9 @@ Closes #<n>
 - (seulement si `ci.mode` vaut `local` ou `release`) CI locale sur develop : <N>/<N> commandes OK
 - (seulement si `ci.mode` vaut `release`) La CI GitHub Actions tourne sur cette PR : attendre qu'elle soit verte avant de merger.
 
+## Consommation
+<sortie de `node conso/cli.cjs … --focus "<titre du milestone>"` collée telle quelle ; si la CLI échoue ou renvoie des `warnings` : une ligne « Consommation indisponible ou partielle : <raison> », sans bloquer la release>
+
 ## À faire par l'utilisateur
 Relire, puis merger cette PR sur `main`.
 (seulement si `packages.enabled`) Après le merge, publier la release pour construire le package : `gh release create v<x.y.z> --target main --generate-notes`.

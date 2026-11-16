@@ -116,7 +116,7 @@ Les blocs « Output Flash » ne changent pas, sauf : `Issue: F-xx`, `PR: local`,
 
 1. Toutes les features du milestone sont `done` dans `etat.md`.
 2. Le CP rejoue chaque commande de `ci.commands` sur `develop` (règle de la CI locale). En cas d'échec : il le signale en une ligne et s'arrête. Il lance ensuite l'audit des dépendances (`tests-et-ci.md`) : une faille haute ou critique devient une nouvelle fiche et une ligne `ready` de `etat.md` dans le milestone courant, et la release attend son merge.
-3. Il écrit `docs/squad/releases/m<k>-<slug>.md` (corps « PR de release » de `github-conventions.md`, avec la ligne CI locale), passe le milestone en `release prête`, commite le suivi, puis crée la branche : `git branch release/m<k>-<slug> develop`.
+3. Il écrit `docs/squad/releases/m<k>-<slug>.md` (corps « PR de release » de `github-conventions.md`, avec la ligne CI locale et la section « Consommation » : sortie de `conso/cli.cjs` avec tous les `--milestone` et `--focus "<titre du milestone livré>"`, ou une ligne si la CLI échoue ou renvoie des `warnings`, sans jamais bloquer la release), passe le milestone en `release prête`, commite le suivi, puis crée la branche : `git branch release/m<k>-<slug> develop`.
 4. Il donne à l'utilisateur les commandes à lancer lui-même (le garde-fou interdit à Claude de merger sur `main`) :
    ```bash
    git switch main

@@ -16,7 +16,10 @@
       "path": "viz/public"
     },
     "skills": {
-      "path": "skills/gepet-squad-viz"
+      "path": "skills"
+    },
+    "conso": {
+      "path": "conso"
     }
   },
   "branches": {

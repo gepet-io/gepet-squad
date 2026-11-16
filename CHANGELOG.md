@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.11.0 — 2026-11-16
+
+Consommation visible : l'utilisateur voit ce que consomme la squad, en tokens bruts.
+
+- **CLI `node conso/cli.cjs`** (ADR 0012) : lit les transcripts de session de Claude Code et le journal de la squad, sans réseau ni dépendance. Tokens bruts (entrée, sortie, cache lu, cache écrit) par agent avec sa tentative, par feature et par milestone, plus la session du Chef de projet. Sortie texte (trois tableaux) ou `--format json`.
+- **`/gepet-squad-status`** gagne une section « Consommation » ; le **bilan de release** (phase 5) recopie la consommation du milestone livré dans le corps de release, ou la note de release en mode économe, pour qu'il survive à la purge des transcripts.
+- **README** : section « Consommation » complétée (commande, lecture du tableau, `cleanupPeriodDays`, chiffres propres à la machine, `ccusage` en complément), vérifiée par `tests/skills/conso-readme.test.cjs`.
+
 ## 0.10.0 — 2026-11-15
 
 Version économe : un projet peut tourner sans rien consommer sur GitHub, et les tests sont allégés dans les deux modes.
