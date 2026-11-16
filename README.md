@@ -69,6 +69,30 @@ La squad limite les tokens consommés sans réduire le contrôle :
 - **Cache de prompt** : les champs d'une mission vont du plus stable au plus variable, pour que le début du prompt soit identique d'un appel à l'autre et profite du cache de prompt d'Anthropic.
 - **État externe** : le Chef de projet ne garde que des numéros et des verdicts. Il relit l'état sur GitHub et la feature concernée dans `docs/roadmap.md` (section ciblée, jamais le fichier entier), et la revue de roadmap par l'architecte se fait sur le chemin du fichier, pas sur son contenu collé.
 
+### Voir ce que consomme la squad
+
+La squad lit les transcripts de session de Claude Code et affiche les tokens bruts consommés : entrée, sortie, lecture de cache et écriture de cache, sans estimation en dollars. La commande, en lecture seule (ni réseau ni `gh`), se lance depuis le dossier du plugin :
+
+```
+node conso/cli.cjs [--project <dir>] [--milestone "<titre>=<id>,<id>…"]… [--focus "<titre>"] [--format texte|json]
+```
+
+`/gepet-squad-status` l'appelle pour vous (section « Consommation »), et le Chef de projet recopie le bilan du milestone livré dans le corps de release (ou la note de release en mode économe).
+
+**Lire le tableau.** La sortie texte contient trois tableaux :
+
+- **Milestone** : nombre d'agents, part du Chef de projet (CP) et les cinq compteurs (Entrée, Sortie, Cache lu, Cache écrit, Total).
+- **Feature** (`#`) : nombre d'agents, tentatives (la plus haute connue, `-` si aucune) et les compteurs.
+- **Poste** : le CP, les agents **hors feature**, la consommation **non attribuée** (transcripts qu'aucun événement du journal ne rattache) et le **Total**.
+
+Un `Cache lu` élevé est bon signe : ces tokens sont relus à bas coût grâce au cache de prompt. `--format json` donne le même rapport pour un traitement automatique.
+
+**Purge des transcripts.** Claude Code supprime les anciens transcripts selon le réglage `cleanupPeriodDays` de `settings.json` (30 jours par défaut). Passé ce délai, les chiffres d'un milestone ne sont plus recalculables : c'est pourquoi le bilan est recopié dans le corps de release, qui le conserve. Augmentez `cleanupPeriodDays` si vous voulez relire plus tard la consommation détaillée.
+
+**Des chiffres propres à la machine.** Les transcripts vivent dans le dossier de configuration de Claude Code de la machine qui a lancé la squad. Un projet repris sur un autre poste, ou dont les transcripts ont été purgés, donne des chiffres partiels ou l'avertissement `TRANSCRIPTS_ABSENTS` : ils ne sont ni partagés ni synchronisés entre machines.
+
+**Pour aller plus loin.** [`ccusage`](https://github.com/ryoppippi/ccusage) complète cet outil : il lit les mêmes transcripts pour une vue globale par jour, mois ou session, avec estimation des coûts, mais ne connaît ni les features ni les milestones de la squad.
+
 ## Commandes
 
 | Commande                           | Rôle                                                                                                           |
