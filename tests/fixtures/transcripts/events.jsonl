@@ -1,0 +1,4 @@
+{"v":1,"ts":"2026-01-01T10:01:00.000Z","src":"hook","type":"agent.requested","sessionId":"sess-cp-0001","toolUseId":"toolu_01","agentType":"gepet-squad:developpeur","mode":"IMPLEMENTATION","issue":11}
+{"v":1,"ts":"2026-01-01T10:01:01.000Z","src":"hook","type":"agent.started","sessionId":"sess-cp-0001","agentId":"a1","agentType":"gepet-squad:developpeur"}
+{"v":1,"ts":"2026-01-01T10:02:00.000Z","src":"hook","type":"agent.requested","sessionId":"sess-cp-0001","toolUseId":"toolu_02","agentType":"gepet-squad:developpeur","mode":"IMPLEMENTATION","issue":12}
+{"v":1,"ts":"2026-01-01T10:02:01.000Z","src":"hook","type":"agent.started","sessionId":"sess-cp-0001","agentId":"a2","agentType":"gepet-squad:developpeur"}
