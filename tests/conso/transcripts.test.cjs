@@ -54,6 +54,11 @@ test("ligne isSidechain : signalée à part, ni comptée ni nulle", () => {
   assert.deepEqual(dedupeByMessageId([parseUsageLine(line)]), []);
 });
 
+test("allowSidechain : une ligne isSidechain d'agent est lue normalement", () => {
+  const line = '{"isSidechain":true,"type":"assistant","message":{"id":"m","model":"x","usage":{"output_tokens":3}}}';
+  assert.equal(parseUsageLine(line, { allowSidechain: true }).usage.output, 3);
+});
+
 test("fixtures anonymisées : aucun chemin absolu ni nom d'utilisateur", () => {
   const files = walk(FIXTURES);
   assert.ok(files.length >= 6);

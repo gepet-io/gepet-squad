@@ -11,9 +11,10 @@ function counter(value) {
 /**
  * Transforme une ligne JSONL en { messageId, model, ts, usage }, en { sidechain: true }
  * pour une ligne isSidechain, ou en null (sans usage, illisible, synthétique, compteurs nuls).
+ * `allowSidechain` : lit quand même une ligne isSidechain (transcripts d'agents, où le drapeau est normal).
  * Ne lève jamais d'exception.
  */
-function parseUsageLine(line) {
+function parseUsageLine(line, { allowSidechain = false } = {}) {
   if (typeof line !== "string" || !line.includes('"usage"')) return null;
   let obj;
   try {
@@ -22,7 +23,7 @@ function parseUsageLine(line) {
     return null;
   }
   if (obj === null || typeof obj !== "object") return null;
-  if (obj.isSidechain === true) return { sidechain: true };
+  if (obj.isSidechain === true && !allowSidechain) return { sidechain: true };
   if (obj.type !== "assistant") return null;
   const message = obj.message;
   if (message === null || typeof message !== "object") return null;
