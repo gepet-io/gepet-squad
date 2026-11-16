@@ -1,0 +1,6 @@
+{"type":"user","timestamp":"2026-01-01T10:00:00.000Z","sessionId":"sess-cp-0001","message":{"role":"user","content":"Texte neutre."}}
+{"type":"assistant","timestamp":"2026-01-01T10:00:01.000Z","sessionId":"sess-cp-0001","message":{"id":"msg_cp_1","model":"claude-opus-4","content":[{"type":"text","text":"Texte neutre."}],"usage":{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":100,"cache_creation_input_tokens":20}}}
+{"type":"assistant","timestamp":"2026-01-01T10:00:02.000Z","sessionId":"sess-cp-0001","message":{"id":"msg_cp_1","model":"claude-opus-4","content":[{"type":"text","text":"Texte neutre."}],"usage":{"input_tokens":10,"output_tokens":40,"cache_read_input_tokens":100,"cache_creation_input_tokens":20}}}
+{"type":"assistant","timestamp":"2026-01-01T10:00:09.000Z","sessionId":"sess-cp-0001","message":{"id":"msg_cp_2","model":"claude-opus-4","content":[{"type":"text","text":"Texte neutre."}],"usage":{"input_tokens":3,"output_tokens":7,"cache_read_input_tokens":120,"cache_creation_input_tokens":0}}}
+{"type":"assistant","timestamp":"2026-01-01T10:00:10.000Z","sessionId":"sess-cp-0001","message":{"id":"msg_syn","model":"<synthetic>","usage":{"input_tokens":0,"output_tokens":0}}}
+ligne illisible {
