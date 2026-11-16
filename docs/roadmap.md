@@ -1,6 +1,6 @@
 # Roadmap — gepet-squad : visualisation 3D temps réel (`/gepet-squad-viz`)
 
-Référence : [ARCHITECTURE.md](architecture/ARCHITECTURE.md) et ses ADR. Versions du plugin : **0.2.0** (M1, collecte), **0.3.0** (M2, serveur), **0.4.0** (M3, vue 3D et commande), **0.6.0** (M4, économie de tokens), **0.8.0** (M5, bureau 3D), **0.9.0** (M6, bonshommes vivants).
+Référence : [ARCHITECTURE.md](architecture/ARCHITECTURE.md) et ses ADR. Versions du plugin : **0.2.0** (M1, collecte), **0.3.0** (M2, serveur), **0.4.0** (M3, vue 3D et commande), **0.6.0** (M4, économie de tokens), **0.8.0** (M5, bureau 3D), **0.9.0** (M6, bonshommes vivants), **0.11.0** (M7, consommation visible).
 
 ## Vue d'ensemble
 | Milestone | Objectif livrable (démontrable) | Features | Sous-projets |
@@ -11,6 +11,7 @@ Référence : [ARCHITECTURE.md](architecture/ARCHITECTURE.md) et ses ADR. Versio
 | M4 — Économie de tokens | Rapports d'agents en 5 lignes (détail sur la PR), missions épurées à préfixe stable, état du CP lu à la demande dans GitHub et `docs/roadmap.md` ; plugin en 0.6.0 | F-16…F-18 | skills |
 | M5 — Bureau 3D : décor et kanban | `/gepet-squad-viz` montre un bureau 3D low-poly meublé (assets Kenney CC0) et un kanban mural de post-its à la place du pipeline ; agents encore en sphères, placés dans leur zone ; plugin en 0.8.0 | F-19…F-25 | repo, viz-server, viz-web, skills |
 | M6 — Bonshommes vivants | Les agents sont de petits bonhommes animés qui entrent, travaillent à leur poste, montrent leur verdict et repartent ; bloom et sphères retirés ; plugin en 0.9.0 | F-26…F-32 | viz-web, skills |
+| M7 — Consommation visible | Le tableau des tokens par agent, feature et milestone (et du CP) s'affiche dans `/gepet-squad-status` et dans le corps de release, en mode normal et économe ; plugin en 0.11.0 | F-33…F-39 | conso, skills |
 
 ## Graphe de dépendances
 ```
@@ -28,11 +29,13 @@ F-20 → F-24 ; F-21 → F-24
 F-23 → F-26 → F-27 → F-31 → F-28 → F-29 → F-30
 F-24 → F-28
 F-32 → F-30   (mode « CI locale », ajouté le 2026-11-14 à la demande de l'utilisateur)
+F-33 → F-34 → F-35 → F-36 → F-37 → F-39   (M7)
+F-36 → F-38 → F-39
 ```
-Parallélisations prévues : F-05 ∥ F-06 puis F-07 ∥ F-09 (M2) ; F-12 ∥ F-13 (M3) ; F-19 ∥ F-20 ∥ F-21 (M5).
+Parallélisations prévues : F-05 ∥ F-06 puis F-07 ∥ F-09 (M2) ; F-12 ∥ F-13 (M3) ; F-19 ∥ F-20 ∥ F-21 (M5) ; F-37 ∥ F-38 (M7, fichiers distincts), le reste de M7 est séquentiel.
 À ne pas paralléliser : deux features qui touchent `hooks/hooks.json` (seule F-04 le modifie) ; F-07, F-08 et F-15 (mêmes fichiers `http.cjs` / `server.cjs`).
 
-Versionnage (`CLAUDE.md` : bump + CHANGELOG à chaque changement de comportement) : la **dernière feature de chaque milestone** fait le bump mineur de `.claude-plugin/plugin.json` et rédige l'entrée de `CHANGELOG.md` de son milestone ; aucune autre feature ne touche ces deux fichiers. F-04 → 0.2.0, F-15 → 0.3.0, F-14 → 0.4.0, F-18 → 0.6.0, F-25 → 0.8.0, F-30 → 0.9.0.
+Versionnage (`CLAUDE.md` : bump + CHANGELOG à chaque changement de comportement) : la **dernière feature de chaque milestone** fait le bump mineur de `.claude-plugin/plugin.json` et rédige l'entrée de `CHANGELOG.md` de son milestone ; aucune autre feature ne touche ces deux fichiers. F-04 → 0.2.0, F-15 → 0.3.0, F-14 → 0.4.0, F-18 → 0.6.0, F-25 → 0.8.0, F-30 → 0.9.0, F-39 → 0.11.0.
 
 ---
 
@@ -1115,6 +1118,190 @@ S
 
 ---
 
+## M7 — Consommation visible
+**Objectif** : afficher en tokens bruts (entrée, sortie, cache lu, cache écrit) ce que consomme un projet squad, par agent, par feature, par milestone et pour la session du Chef de projet, sans réseau ni `gh`.
+**Définition de fin** : `node conso/cli.cjs` produit le tableau texte et le JSON v1 sur un projet réel ; `/gepet-squad-status` et le corps de release (PR `release/*`, ou `docs/squad/releases/` en économe local) portent une section « Consommation » ; plugin en 0.11.0.
+Références : [ADR 0012](architecture/adr/0012-sous-projet-conso-cli-sans-dependance.md), [ADR 0013](architecture/adr/0013-contrat-lecture-transcripts-et-attribution.md), ARCHITECTURE § 6 (contrat JSON v1).
+
+### F-33 · [conso] Lire les transcripts Claude Code et en extraire l'usage dédupliqué
+## Contexte
+Les chiffres de consommation existent déjà dans les transcripts locaux de Claude Code (`message.usage`), répétés sur plusieurs lignes d'un même `message.id`. Sans lecture fiable et dédupliquée, tout le reste du milestone compterait double. Cette feature pose le sous-projet `conso` et ses fixtures anonymisées.
+## Objectif
+`conso/lib/transcripts.cjs` transforme une ligne de transcript en `{messageId, model, ts, usage}` ou `null`, et dédoublonne par `message.id`.
+## Critères d'acceptance
+- [ ] Une ligne valide d'un transcript donne `{messageId, model, ts, usage}` avec les quatre compteurs (entrée, sortie, cache lu, cache écrit) ; une ligne sans `usage`, illisible, `<synthetic>` ou à compteurs nuls donne `null` sans lever d'exception.
+- [ ] Plusieurs lignes portant le même `message.id` ne comptent qu'une fois, en gardant la dernière occurrence.
+- [ ] Une ligne `isSidechain: true` est signalée à part (`{ sidechain: true }`), ni comptée ni confondue avec une ligne illisible : elle alimentera l'avertissement `FORMAT_ANCIEN`.
+- [ ] Seuls `type`, `timestamp`, `message.id`, `message.model` et les quatre compteurs sont lus : aucun contenu de message n'apparaît dans la sortie.
+- [ ] Fixtures anonymisées dans `tests/fixtures/transcripts/` : une session CP, deux agents avec `.meta.json`, un journal `events.jsonl` ; contenu des messages remplacé par un texte neutre, aucun chemin absolu ni nom d'utilisateur, identifiants réécrits (un test vérifie l'absence de `C:\` , `/home/` et `/Users/`).
+- [ ] Tests unitaires : ligne nominale, doublon de `message.id`, ligne illisible, ligne `isSidechain`.
+- [ ] Tests d'intégration : sans objet (module pur, aucune I/O).
+- [ ] Lint, build et tests essentiels du sous-projet au vert
+## Notes techniques
+- Sous-projet : `conso`
+- ADR de référence : `docs/architecture/adr/0013-contrat-lecture-transcripts-et-attribution.md`
+- Fichiers / modules concernés : `conso/lib/transcripts.cjs`, `tests/conso/transcripts.test.cjs`, `tests/fixtures/transcripts/`
+- Contraintes : Node ≥ 22, CommonJS, `node:*` uniquement, module pur ; tests dans `tests/conso/*.test.cjs`.
+## Skills / outils recommandés
+- `engineering:testing-strategy` : cadrer les fixtures et garder 1 à 3 tests par critère.
+## Dépendances
+- aucune
+## Taille
+S
+
+### F-34 · [conso] Attribuer chaque agent à sa feature, son mode et sa tentative
+## Contexte
+Pour ventiler la consommation par feature, il faut relier chaque transcript d'agent à son issue, son rôle et sa tentative, et situer la session du Chef de projet dans un milestone.
+## Objectif
+`conso/lib/attribution.cjs` associe chaque agent à `{role, mode, issue, attempt}` et la session CP à un milestone.
+## Critères d'acceptance
+- [ ] Un agent est relié à son événement `agent.requested` par `toolUseId` (`.meta.json`), sinon par `agentId`, sinon par l'en-tête de mission (`MODE`, `ISSUE`, `PR`, `TENTATIVE`).
+- [ ] Un agent hors squad est exclu ; un agent de la squad sans `issue` va en `horsFeature` ; une tentative inconnue vaut `null`.
+- [ ] `role` = `agentType` sans le préfixe `gepet-squad:` ou `claude-gepet-squad:` ; un fichier de la squad sans aucune attribution va en `nonAttribue`.
+- [ ] Mode économe local : l'en-tête accepte `ISSUE: F-<n>` ; si l'événement du journal attribué n'a pas d'`issue` (ni `mode`, `pr`, `attempt`), ils sont complétés par l'en-tête du transcript, même pour un agent attribué par `toolUseId`.
+- [ ] La consommation du CP est rattachée, grâce à une table `id → milestone` reçue en entrée, au milestone de la dernière feature dont un agent a été demandé (celle d'un `agent.requested`), sinon à « Cadrage » ; sans table, le CP n'a qu'un total.
+- [ ] Fixture économe local ajoutée dans `tests/fixtures/transcripts/` (agent `F-07`, journal sans `issue`).
+- [ ] Tests unitaires : attribution par `toolUseId`, repli par en-tête de mission, agent hors squad, CP → milestone, agent économe local (`F-07`, journal sans `issue`).
+- [ ] Tests d'intégration : sans objet (module pur, aucune I/O).
+- [ ] Lint, build et tests essentiels du sous-projet au vert
+## Notes techniques
+- Sous-projet : `conso`
+- ADR de référence : `docs/architecture/adr/0013-contrat-lecture-transcripts-et-attribution.md`
+- Fichiers / modules concernés : `conso/lib/attribution.cjs`, `tests/conso/attribution.test.cjs`
+- Contraintes : schéma d'événement v1 inchangé, lu en lecture seule ; module pur ; réutilise les fixtures de F-33.
+## Skills / outils recommandés
+- `engineering:testing-strategy`.
+## Dépendances
+- F-33
+## Taille
+S
+
+### F-35 · [conso] Agréger la consommation et la rendre en tableau texte et JSON v1
+## Contexte
+Le lecteur veut un bilan par agent, feature et milestone, plus le total du CP. Cette feature fixe le contrat JSON v1 consommé ensuite par les skills.
+## Objectif
+`aggregate.cjs` calcule les totaux et `format.cjs` produit le tableau texte et le JSON v1 décrit dans ARCHITECTURE § 6.
+## Critères d'acceptance
+- [ ] Les totaux par agent, par feature, par milestone et pour le CP sont la somme exacte des quatre compteurs ; le total général égale la somme des parties plus `nonAttribue`.
+- [ ] Le JSON produit respecte le contrat v1 d'ARCHITECTURE § 6 (clés et types).
+- [ ] Le texte groupe les entiers par espace, ne contient que des nombres, rôles, modes, modèles, numéros et dates, et reste lisible sans aucune donnée (« aucune consommation trouvée »).
+- [ ] L'usage d'un milestone est la somme des agents de ses features plus la part du CP ; `features[].milestone` vaut `null` sans table de milestones ; l'identifiant (`12` ou `F-07`) est gardé tel quel dans le texte et le JSON.
+- [ ] Avec un milestone ciblé (`focus`), la sortie se limite à ce milestone (`milestones`, `features`, `agents`, `cp.parMilestone`), `totals` devient son total et la part du CP est identique avec ou sans focus.
+- [ ] Le rendu texte contient les trois tableaux et les colonnes de l'ADR 0012 (point 5), que F-37 et F-38 recopient.
+- [ ] Les `warnings[]` fournis en entrée sont repris dans les deux formats.
+- [ ] Tests unitaires : somme et total général, focus, rendu texte, rendu JSON, cas vide.
+- [ ] Tests d'intégration : sans objet (modules purs, aucune I/O).
+- [ ] Lint, build et tests essentiels du sous-projet au vert
+## Notes techniques
+- Sous-projet : `conso`
+- ADR de référence : `docs/architecture/adr/0012-sous-projet-conso-cli-sans-dependance.md`
+- Fichiers / modules concernés : `conso/lib/aggregate.cjs`, `conso/lib/format.cjs`, `tests/conso/aggregate.test.cjs`, `tests/conso/format.test.cjs`
+- Contraintes : modules purs ; le contrat JSON v1 ne change ensuite que par un ADR.
+## Skills / outils recommandés
+- `engineering:testing-strategy`.
+## Dépendances
+- F-33, F-34
+## Taille
+M
+
+### F-36 · [conso] Fournir la CLI `conso/cli.cjs` et la localisation des sources
+## Contexte
+Les skills ont besoin d'une commande unique, en lecture seule, qui localise le journal et les transcripts sur la machine et qui ne plante jamais sur une donnée inattendue.
+## Objectif
+`node conso/cli.cjs` localise les sources, lit en flux et affiche le bilan, avec codes de sortie et avertissements.
+## Critères d'acceptance
+- [ ] `node conso/cli.cjs [--project <dir>] [--milestone "<titre>=<n°>,…"]… [--focus "<titre>"] [--format texte|json]` fonctionne ; sortie 0 (y compris sans aucun transcript), 1 sans projet squad, 2 sur arguments invalides, erreurs sur stderr au format `[gepet-squad-conso] erreur message`.
+- [ ] `--milestone` mal formé (identifiant ni entier ni `F-<n>`) ou `--focus` sur un titre absent des `--milestone` : code 2.
+- [ ] `sources.cjs` localise les transcripts par les `sessionId` du journal (`events.jsonl` et le journal tourné `events.1.jsonl`, via `journalPaths`), avec repli par le slug du dossier projet en ne gardant que les sessions dont un `.meta.json` a un `agentType` de la squad, sous `CLAUDE_CONFIG_DIR` sinon `~/.claude`, et les lit en flux en ne parsant que les lignes contenant `"usage"`.
+- [ ] Ligne illisible, fichier absent ou format ancien donnent un `warnings[]` (`TRANSCRIPTS_ABSENTS`, `JOURNAL_ABSENT`, `LIGNES_ILLISIBLES`, `AGENTS_NON_ATTRIBUES`, `FORMAT_ANCIEN`), jamais un plantage.
+- [ ] Aucune écriture, aucun réseau, aucun appel `gh` dans `conso/`.
+- [ ] Tests unitaires : parsing des arguments et codes de sortie, localisation des sources.
+- [ ] Tests d'intégration : CLI lancée en sous-processus avec un `CLAUDE_CONFIG_DIR` temporaire et un repo git temporaire contenant un journal, sorties texte et JSON vérifiées, plus le code 1 (repo sans `.gepet-squad.json`) et l'avertissement `TRANSCRIPTS_ABSENTS`.
+- [ ] Lint, build et tests essentiels du sous-projet au vert
+## Notes techniques
+- Sous-projet : `conso`
+- ADR de référence : `docs/architecture/adr/0012-sous-projet-conso-cli-sans-dependance.md`, `0013-…`
+- Fichiers / modules concernés : `conso/cli.cjs`, `conso/lib/sources.cjs`, `tests/conso/cli.test.cjs`
+- Contraintes : `node:readline` et `node:util.parseArgs` ; réutilise `hooks/lib/journal.cjs` ; chemins via `node:path` et `os.homedir()` (la CI de release tourne aussi sous Windows) ; cible moins de 5 s sur une session de dizaines de Mo.
+## Skills / outils recommandés
+- `engineering:testing-strategy`.
+## Dépendances
+- F-35
+## Taille
+M
+
+### F-37 · [skills] Ajouter la section « Consommation » à `/gepet-squad-status`
+## Contexte
+L'utilisateur consulte l'avancement avec `/gepet-squad-status` : c'est là qu'il veut voir ce que coûte le projet, en mode normal comme en mode économe.
+## Objectif
+`/gepet-squad-status` appelle la CLI et affiche la consommation par milestone.
+## Critères d'acceptance
+- [ ] Le skill appelle `node "${CLAUDE_PLUGIN_ROOT}/conso/cli.cjs" --project "<cwd>"` avec un `--milestone "<titre>=<ids>"` par milestone : en mode normal et hybride, ids lus dans `gh issue list --state all` (sans `--state all`, les features des milestones livrés disparaîtraient) ; en économe local, identifiants `F-xx` lus dans la colonne `Milestone` du tableau « Features » de `etat.md`. La CLI ne lit jamais GitHub.
+- [ ] Si la CLI ne renvoie rien ou signale des `warnings`, le skill l'indique en une ligne sans faire échouer le statut.
+- [ ] Tests unitaires : `tests/skills/conso-skill.test.cjs` (test statique) vérifie que le skill référence la CLI et ses arguments.
+- [ ] Tests d'intégration : `claude plugin validate .` au vert.
+- [ ] Lint, build et tests essentiels du sous-projet au vert
+## Notes techniques
+- Sous-projet : `skills`
+- ADR de référence : `docs/architecture/adr/0012-sous-projet-conso-cli-sans-dependance.md`
+- Fichiers / modules concernés : `skills/gepet-squad-status/SKILL.md`, `tests/skills/`
+- Contraintes : ne touche ni README ni CHANGELOG ni `plugin.json` ; tout en français.
+## Skills / outils recommandés
+- `plugin-authoring` : conventions du plugin.
+## Dépendances
+- F-36
+## Taille
+S
+
+### F-38 · [skills] Ajouter le bilan de consommation à la release et au bilan final du CP
+## Contexte
+Le gain de l'économie de tokens (M4) n'a jamais été mesuré. Le bilan de fin de milestone doit figurer dans la release, où il survit à la purge des transcripts (30 jours par défaut).
+## Objectif
+Le CP ajoute une section « Consommation » au corps de release (ou à la note de release en économe) et au bilan final.
+## Critères d'acceptance
+- [ ] Phase 5 de `skills/gepet-squad/SKILL.md` : le CP appelle la CLI avec tous les `--milestone` et `--focus "<titre exact du milestone livré>"` (identique à son `--milestone`) et colle le résultat dans le corps de release ; le bilan final (phase 6) l'appelle sans `--focus` et donne le total du projet.
+- [ ] `references/github-conventions.md` (corps de PR de release) et le point 3 de « Release en mode économe » de `references/mode-econome.md` (note `docs/squad/releases/m<k>-<slug>.md`) décrivent la section « Consommation » ; le point 3 est visé explicitement car la phase 5 saute les points 1 à 3 du SKILL en économe.
+- [ ] Un échec ou des `warnings` de la CLI ne bloquent jamais la release : la section « Consommation » le dit en une ligne.
+- [ ] Tests unitaires : `tests/skills/conso-release.test.cjs` (test statique) vérifie que la phase 5 du SKILL, `github-conventions.md` et `mode-econome.md` citent `conso/cli.cjs` et la section « Consommation ».
+- [ ] Tests d'intégration : `claude plugin validate .` au vert.
+- [ ] Lint, build et tests essentiels du sous-projet au vert
+## Notes techniques
+- Sous-projet : `skills`
+- ADR de référence : `docs/architecture/adr/0012-sous-projet-conso-cli-sans-dependance.md`
+- Fichiers / modules concernés : `skills/gepet-squad/SKILL.md`, `skills/gepet-squad/references/github-conventions.md`, `skills/gepet-squad/references/mode-econome.md`, `tests/skills/conso-release.test.cjs`
+- Contraintes : ne touche ni `README.md` ni `CHANGELOG.md` ni `plugin.json` (F-39) ; tout en français.
+## Skills / outils recommandés
+- `plugin-authoring`.
+## Dépendances
+- F-36
+## Taille
+S
+
+### F-39 · [skills] Documenter la consommation et publier la 0.11.0
+## Contexte
+Avec M7, l'utilisateur peut voir ce que consomme la squad : ce changement de comportement doit être documenté et versionné (`CLAUDE.md`).
+## Objectif
+README et CHANGELOG décrivent la consommation visible, et le plugin passe en 0.11.0.
+## Critères d'acceptance
+- [ ] `README.md` : section « Consommation » complétée, contenant la commande `node conso/cli.cjs`, la lecture du tableau, `cleanupPeriodDays` (purge des transcripts), le caractère propre à la machine des chiffres et `ccusage` cité comme complément ; `tests/skills/conso-readme.test.cjs` (test statique) vérifie la présence de `node conso/cli.cjs`, `cleanupPeriodDays` et `ccusage`.
+- [ ] `.claude-plugin/plugin.json` passe à `0.11.0` et `CHANGELOG.md` porte l'entrée 0.11.0.
+- [ ] Tests unitaires : le test statique ci-dessus.
+- [ ] Tests d'intégration : `claude plugin validate .` au vert.
+- [ ] Lint, build et tests essentiels du sous-projet au vert
+## Notes techniques
+- Sous-projet : `skills`
+- ADR de référence : `docs/architecture/adr/0012-sous-projet-conso-cli-sans-dependance.md`
+- Fichiers / modules concernés : `README.md`, `CHANGELOG.md`, `.claude-plugin/plugin.json`, `tests/skills/conso-readme.test.cjs`
+- Contraintes : seule feature de M7 qui touche `plugin.json` et `CHANGELOG.md` ; tout en français.
+## Skills / outils recommandés
+- `plugin-authoring`.
+## Dépendances
+- F-37, F-38
+## Taille
+S
+
+---
+
 ## Correspondance F-xx → issues GitHub
 | Feature | Issue |
 |---|---|
@@ -1150,3 +1337,10 @@ S
 | F-30 | #64 |
 | F-31 | #61 |
 | F-32 | #76 |
+| F-33 | #85 |
+| F-34 | #86 |
+| F-35 | #87 |
+| F-36 | #88 |
+| F-37 | #89 |
+| F-38 | #90 |
+| F-39 | #91 |

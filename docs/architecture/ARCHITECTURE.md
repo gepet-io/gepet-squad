@@ -1,6 +1,6 @@
-# Architecture — gepet-squad : visualisation 3D temps réel (`/gepet-squad-viz`)
+# Architecture — gepet-squad : visualisation 3D temps réel (`/gepet-squad-viz`) et consommation
 
-> Statut : validée par l'utilisateur le 2026-10-30. Évolution « bureau 3D » validée le 2026-11-13 (ADR 0009 à 0011). Toute évolution passe par un nouvel ADR.
+> Statut : validée par l'utilisateur le 2026-10-30. Évolution « bureau 3D » validée le 2026-11-13 (ADR 0009 à 0011). Évolution « consommation » validée le 2026-11-16 (ADR 0012 et 0013). Toute évolution passe par un nouvel ADR.
 
 ## 1. Besoin
 
@@ -35,6 +35,25 @@ Le plugin `gepet-squad` reçoit une nouvelle brique : une **visualisation 3D, en
   - pas de comportement des bonhommes sans événement réel derrière (pas de pauses café, pas de visites entre agents) ;
   - pas de déplacement libre (navmesh).
 
+### Consommation (0.11.0)
+
+Second besoin, indépendant de la vue : **rendre visible ce que consomme un projet squad**, en tokens bruts détaillés (entrée, sortie, lecture de cache, écriture de cache).
+- **Grain** : par agent (avec sa tentative et son modèle), par feature et par milestone, plus la session du CP (total et répartition par milestone, pas par feature).
+- **Où** :
+  - en texte dans `/gepet-squad-status` ;
+  - dans le bilan de fin de chaque milestone, recopié dans le corps de release, qui le conserve.
+
+  Les deux modes (normal et économe) sont couverts.
+- **Source** : les transcripts locaux de Claude Code, attribués grâce au journal d'événements existant ([ADR 0013](adr/0013-contrat-lecture-transcripts-et-attribution.md)).
+- **Outil** : une CLI Node sans dépendance, `node conso/cli.cjs` ([ADR 0012](adr/0012-sous-projet-conso-cli-sans-dependance.md)).
+- **Hors périmètre** :
+  - alertes et seuils de budget ;
+  - estimation en dollars ;
+  - affichage dans la vue 3D ;
+  - consommation GitHub (minutes Actions, appels `gh`) ;
+  - historique au-delà de la purge des transcripts par Claude Code (30 jours par défaut), sinon par les bilans de release ;
+  - vue multi-machines.
+
 ## 2. Vue d'ensemble
 
 Il y a **trois briques et un seul flux de données**, à sens unique : hooks → journal JSONL → serveur → SSE → navigateur. Le serveur fusionne le journal avec un instantané GitHub obtenu par `gh`. Personne n'écrit vers GitHub.
@@ -65,6 +84,18 @@ flowchart LR
 
 La capture réelle du 2026-10-30 confirme les points 1 et 2 en arrière-plan. Elle montre aussi qu'un agent repris par `SendMessage` enchaîne plusieurs cycles début → fin pour un même `agentId` : le cycle de vie n'est donc **pas monotone** ([ADR 0008](adr/0008-reprise-agent-cycle-non-monotone.md)).
 
+**Flux de la consommation** ([ADR 0012](adr/0012-sous-projet-conso-cli-sans-dependance.md), [ADR 0013](adr/0013-contrat-lecture-transcripts-et-attribution.md)). Il est séparé du flux de la vue : c'est une CLI ponctuelle, en lecture seule, sans serveur ni réseau. Elle croise le journal, pour l'attribution, avec les transcripts de Claude Code, pour les chiffres.
+
+```mermaid
+flowchart LR
+  J[("events.jsonl<br/>(sessionId, agentId, toolUseId, issue, mode, attempt)")] --> X["conso/cli.cjs<br/>(lecture seule)"]
+  T[("&lt;config&gt;/projects/*/&lt;sessionId&gt;.jsonl<br/>…/subagents/agent-&lt;agentId&gt;.jsonl + .meta.json")] --> X
+  ST["skills/gepet-squad-status<br/>(groupement en milestones : gh ou etat.md)"] -->|"--milestone … --format texte"| X
+  CP["Chef de projet, phase 5<br/>(bilan du milestone)"] -->|"--milestone … --focus M&lt;k&gt;"| X
+  X -->|"texte ou JSON v1 (stdout)"| ST & CP
+  CP -->|"section « Consommation »"| R[("corps de PR release/*<br/>ou docs/squad/releases/m&lt;k&gt;-….md")]
+```
+
 ## 3. Sous-projets
 
 La structure du plugin (`hooks/`, `skills/`, `agents/`, `scripts/`) est imposée par Claude Code : on ne crée donc pas de layout `apps/`. Les scopes ci-dessous sont à déclarer dans `.gepet-squad.json`.
@@ -74,7 +105,8 @@ La structure du plugin (`hooks/`, `skills/`, `agents/`, `scripts/`) est imposée
 | `hooks` | `hooks/events.cjs`, `hooks/lib/`, entrées dans `hooks/hooks.json` | Collecteur : transforme les payloads de hooks en événements normalisés et les ajoute au journal. N'est actif que dans un repo qui contient `.gepet-squad.json`. Ne bloque jamais rien. | Le fichier `events.jsonl` (schéma v1, voir § 6) | Le stdin JSON des hooks Claude Code, `git rev-parse --git-common-dir` |
 | `viz-server` | `viz/server.cjs`, `viz/lib/` | Serveur HTTP local en lecture seule. Il suit le journal, prend l'instantané GitHub, fusionne les deux dans un état et le pousse en SSE. | `GET /` (fichiers statiques de `viz/public`), `GET /state` (JSON), `GET /events` (SSE), `GET /health` (`{"ok":true,"pid":<pid>}`) | `events.jsonl`, CLI `gh` |
 | `viz-web` | `viz/public/` (`index.html`, `js/`, `css/`, `vendor/three/`, `vendor/kenney/`), plus `scripts/vendor-three.sh` | Front 3D « bureau ». Modules purs (`state.js`, `office-layout.js`, `paths.js`, `crew.js`, `assets.js`, `motion.js`, `view-model.js`) séparés du rendu (`scene.js`, `characters.js`, `labels.js`, `main.js`). | — | `GET /state`, `EventSource('/events')`, assets `vendor/` (`.glb`, `.png`) |
-| `skills` | `skills/gepet-squad-viz/SKILL.md`, plus la doc README et CHANGELOG | Commande utilisateur. Démarre le serveur en arrière-plan et affiche l'URL. Délègue l'unicité et l'arrêt aux sous-commandes `status` et `stop` de `viz/server.cjs` : le skill ne manipule aucun pid. | `/gepet-squad-viz [stop]` | CLI de `viz/server.cjs` (`[start]`, `status`, `stop`) |
+| `conso` | `conso/cli.cjs`, `conso/lib/` | CLI de consommation, en lecture seule. Lit le journal et les transcripts de Claude Code, attribue chaque réponse du modèle à un agent, une feature, un milestone ou au CP, puis agrège en tokens bruts (ADR 0012 et 0013). | `node conso/cli.cjs` : texte ou JSON v1 sur stdout (§ 6) | `events.jsonl` (via `hooks/lib/journal.cjs`), `<config>/projects/**` (transcripts, `.meta.json`) |
+| `skills` | `skills/` : `gepet-squad-viz/SKILL.md`, `gepet-squad-status/SKILL.md`, `gepet-squad/SKILL.md` (phase 5 et bilan) et ses références (`github-conventions.md`, `mode-econome.md`), plus la doc README et CHANGELOG | Commandes utilisateur et consignes du CP. `gepet-squad-viz` démarre le serveur en arrière-plan et affiche l'URL ; il délègue l'unicité et l'arrêt aux sous-commandes `status` et `stop` de `viz/server.cjs`, sans manipuler de pid. `gepet-squad-status` et le bilan de milestone appellent la CLI `conso`. | `/gepet-squad-viz [stop]`, section « Consommation » de `/gepet-squad-status` et du corps de release | CLI de `viz/server.cjs` (`[start]`, `status`, `stop`), CLI `conso/cli.cjs` |
 | `repo` | racine : `package.json`, `eslint.config.mjs`, `.github/workflows/ci.yml`, `.gitattributes`, `tests/helpers/`, `scripts/vendor-assets.sh` | Outillage transverse : lint, suite de tests, CI, vendoring des assets Kenney à partir des zips téléchargés à la main (ADR 0010) | `npm test`, `npm run lint` | — |
 
 Dépendances entre sous-projets :
@@ -84,7 +116,10 @@ Dépendances entre sous-projets :
   - `hooks/lib/journal.cjs`, qui fournit `findSquadRoot` (racine du projet squad) et la résolution du chemin du journal. Ces deux fonctions sont donc aussi un contrat entre scopes, qu'on ne modifie pas sans vérifier `viz-server` ;
 - `viz-web` dépend du **contrat `/state` et SSE** exposé par `viz-server`, et de la liste blanche MIME de `viz/lib/http.cjs` pour servir les `.glb` (ADR 0010) ;
 - les assets de `viz/public/vendor/kenney/` sont produits par `scripts/vendor-assets.sh` (scope `repo`). Leur manifeste, `viz/public/js/assets.js` (scope `viz-web`), et `SOURCE.md` doivent rester alignés ;
-- `skills` dépend de la CLI de `viz/server.cjs`.
+- `skills` dépend de la CLI de `viz/server.cjs` et de la CLI `conso/cli.cjs` (arguments et format texte) ;
+- `conso` dépend de `hooks` par `hooks/lib/journal.cjs` (racine squad, chemins du journal) et par les champs du **schéma v1**, qu'il lit sans le modifier. `journal.cjs` est donc un contrat lu par deux scopes (`viz-server`, `conso`). `conso` ne dépend pas de `viz-server`.
+
+Le contrat de sortie de `conso` (JSON v1, § 6) appartient au scope `conso`. Il est posé par la feature qui livre l'agrégat et ne change ensuite que par un ADR.
 
 Le schéma d'événement v1 vit dans `hooks/lib/schema.cjs` : il appartient au scope `hooks`, qui le produit, et `viz-server` le lit par un chemin relatif. Le contrat `/state` appartient à `viz-server` (`viz/lib/reducer.cjs`, forme décrite au § 6). Ces deux contrats sont posés par leur première feature et ne changent ensuite que par un ADR.
 
@@ -95,23 +130,25 @@ Le schéma d'événement v1 vit dans `hooks/lib/schema.cjs` : il appartient au s
 | `hooks` | Node.js ≥ 22 (LTS), CommonJS | aucun (modules standards) | Ajout de lignes à `events.jsonl` | `node:test` + `node:assert/strict` : normalisation de chaque type de payload (fixtures réelles), parsing des commandes `gh`, filtrage hors squad | `node:test` : exécution de `hooks/events.cjs` en sous-processus, avec un stdin de fixture, dans un repo git temporaire, puis vérification du journal écrit (rotation comprise) | ESLint 10 (`@eslint/js`, `globals`), flat config |
 | `viz-server` | Node.js ≥ 22, CommonJS | aucun (`node:http`, `node:fs`, `node:child_process`) | Lecture du journal, instantané `gh` en mémoire | `node:test` : réducteur (fusion journal et instantané, priorité GitHub), mapping `status:*` → station, contrôle de l'en-tête `Host`, résolution des chemins statiques | `node:test` : serveur démarré sur un port éphémère, client SSE qui reçoit un événement ajouté au journal, `/state` avec un faux `gh` placé dans le `PATH`, refus d'un `Host` étranger et d'une traversée de chemin | ESLint 10 |
 | `viz-web` | JavaScript ES2022, modules ES natifs | Three.js **0.187.0** vendoré (MIT) : `OrbitControls`, `CSS2DRenderer`, `GLTFLoader`, `SkeletonUtils`, `AnimationMixer`. Assets **Kenney Mini Characters 2.0** et **Furniture Kit 2.0** (CC0, GLB) vendorés. | Modèle en mémoire | `node:test`, sans DOM, sur les modules purs :<br>- `state.js` : application d'un événement SSE ;<br>- `office-layout.js` : zones, postes, kanban, débordement « +N » ;<br>- `paths.js` : trajets, plafond de 3 s ;<br>- `crew.js` : postes, machine d'états, reprise, interruptions, reduced motion ;<br>- `assets.js` : manifeste ;<br>- `motion.js`, `view-model.js`. | Avec `node:test` :<br>- **GLB vendorés lus sous Node** : sha256 conformes à `SOURCE.md`, clips requis, aucune image embarquée, licences ([ADR 0010](adr/0010-assets-3d-cc0-vendores-gltf.md)) ;<br>- `scene.js` et `characters.js` chargés avec les crochets `three-register.mjs` et un faux chargeur.<br><br>Smoke manuel avec le navigateur intégré (skill `run`) : un agent entre, travaille, rend son verdict et sort, sans erreur console ni CSP. Pas de test WebGL automatisé ([ADR 0006](adr/0006-strategie-de-tests.md), [ADR 0009](adr/0009-metaphore-bureau-3d.md)). | ESLint 10 (`vendor/` ignoré) |
+| `conso` | Node.js ≥ 22, CommonJS | aucun (`node:fs`, `node:path`, `node:os`, `node:readline`, `node:util`) | Lecture en flux du journal et des transcripts ; aucune écriture | `node:test` sur les modules purs, avec des fixtures réelles anonymisées (`tests/fixtures/transcripts/`) : déduplication par `message.id`, lignes ignorées, attribution (`toolUseId`, `agentId`, en-tête de mission), rattachement du CP à un milestone, agrégats, rendu texte | `node:test` : `conso/cli.cjs` en sous-processus, avec un `CLAUDE_CONFIG_DIR` temporaire et un repo git temporaire (`.gepet-squad.json` et journal). On vérifie la sortie JSON et texte, les codes 1 et 2, et `TRANSCRIPTS_ABSENTS` | ESLint 10 |
 | `skills` | Markdown (frontmatter skill) | — | — | — | `claude plugin validate .` | — |
 
 ## 5. Commandes
 
-| Sous-projet | install | lint | build | test (suite complète) | démarrer |
-|---|---|---|---|---|---|
-| tous (racine) | `npm ci` (dev uniquement : ESLint) | `npm run lint` | — (aucun build) | `npm test` (= `node --test`) | — |
-| `hooks` | `npm ci` | `npx eslint hooks` | — | `node --test "tests/hooks/*.test.cjs"` | déclenché par Claude Code via `hooks/hooks.json` |
-| `viz-server` | `npm ci` | `npx eslint viz/server.cjs viz/lib` | — | `node --test "tests/viz-server/*.test.cjs"` | `node viz/server.cjs --project <dir> [--port 0]` ; `node viz/server.cjs status --project <dir> [--wait <s>]` (affiche l'URL si le serveur est vivant, c'est-à-dire si le pid du verrou existe et si `/health` annonce ce pid, et nettoie un verrou périmé) ; `node viz/server.cjs stop --project <dir>` |
-| `viz-web` | `npm ci` | `npx eslint viz/public/js` | — | `node --test "tests/viz-web/*.test.mjs"` | servi par `viz-server` |
-| `skills` | — | — | — | `claude plugin validate .` | `/gepet-squad-viz` puis `/gepet-squad-viz stop` |
+| Sous-projet | install | lint | build | tests essentiels (≈ 3 min) | tests complexes | audit des dépendances | démarrer |
+|---|---|---|---|---|---|---|---|
+| tous (racine) | `npm ci` (dev uniquement : ESLint) | `npm run lint` | — (aucun build) | `npm test` (= `node --test`) | voir `viz-web` | `npm audit --audit-level=high` (devDependencies seulement : aucune dépendance à l'exécution) | — |
+| `hooks` | `npm ci` | `npx eslint hooks` | — | `node --test "tests/hooks/*.test.cjs"` | aucun | aucun (zéro dépendance) | déclenché par Claude Code via `hooks/hooks.json` |
+| `viz-server` | `npm ci` | `npx eslint viz/server.cjs viz/lib` | — | `node --test "tests/viz-server/*.test.cjs"` | aucun | aucun (zéro dépendance) | `node viz/server.cjs --project <dir> [--port 0]` ; `node viz/server.cjs status --project <dir> [--wait <s>]` (affiche l'URL si le serveur est vivant, c'est-à-dire si le pid du verrou existe et si `/health` annonce ce pid, et nettoie un verrou périmé) ; `node viz/server.cjs stop --project <dir>` |
+| `viz-web` | `npm ci` | `npx eslint viz/public/js` | — | `node --test "tests/viz-web/*.test.mjs"` | smoke manuel au navigateur intégré (skill `run`, ADR 0006) | aucun (Three.js vendoré, version épinglée) | servi par `viz-server` |
+| `conso` | `npm ci` | `npx eslint conso` | — | `node --test "tests/conso/*.test.cjs"` | aucun | aucun (zéro dépendance) | `node conso/cli.cjs [--project <dir>] [--milestone "<titre>=<id>,…"]… [--focus "<titre>"] [--format texte\|json]` |
+| `skills` | — | — | — | `claude plugin validate .` | aucun | aucun | `/gepet-squad-viz` puis `/gepet-squad-viz stop` ; `/gepet-squad-status` |
 
-Vérifications du plugin, à lancer en plus sur chaque PR : `claude plugin validate .`, `bash -n scripts/bootstrap.sh` et `bash -n scripts/vendor-assets.sh` (dès que le script existe), plus le test du garde-fou décrit dans `CLAUDE.md`.
+Vérifications du plugin, à lancer en plus sur chaque PR : `claude plugin validate .`, `bash -n scripts/bootstrap.sh`, `bash -n scripts/vendor-three.sh` et `bash -n scripts/vendor-assets.sh` (toutes dans `ci.commands`, sauf `validate`), plus le test du garde-fou décrit dans `CLAUDE.md`.
 
 Mise à jour des assets (dev uniquement) : `bash scripts/vendor-assets.sh <kenney_mini-characters.zip> <kenney_furniture-kit.zip>`. Les zips se téléchargent à la main sur kenney.nl.
 
-> Ce sont ces commandes exactes qu'utilisent le développeur et le testeur.
+> Ce sont ces commandes exactes qu'utilisent le développeur et le testeur (tests essentiels) et le vérificateur (tests complexes, ciblés sur la feature). Voir `tests-et-ci.md`.
 > Les globs restent entre guillemets : `node --test` les développe lui-même. Avec Node 22, un chemin de dossier nu (`node --test tests/hooks/`) est résolu comme un module, et la commande échoue.
 
 Le `package.json` racine est `"private": true`. Il ne contient que des `devDependencies` (`eslint`, `@eslint/js`, `globals`) et les scripts `test` et `lint`. Le plugin ne l'exécute jamais chez l'utilisateur.
@@ -263,6 +300,34 @@ Détail dans l'[ADR 0003](adr/0003-journal-evenements-et-etat-fusionne.md).
 
   Le chef de projet est toujours présent à son bureau. Il fait un geste à chaque changement de feature ou de release que `state.js` signale (transitions `feature-move`, `feature-status`, ou `release` vers `merged`), c'est-à-dire aux `feature.status` et `pr.merged` du journal qui modifient l'état. Le comportement des bonhommes en fonction de la `phase` est décrit dans l'[ADR 0011](adr/0011-animation-scriptee-des-bonhommes.md).
 - **Données personnelles** : uniquement des logins GitHub et des titres d'issues, déjà présents sur le repo. Aucune sauvegarde n'est nécessaire, car GitHub permet de tout reconstruire.
+- **Consommation (`conso`)**. Le détail est dans l'[ADR 0013](adr/0013-contrat-lecture-transcripts-et-attribution.md) (lecture des transcripts) et l'[ADR 0012](adr/0012-sous-projet-conso-cli-sans-dependance.md) (CLI et contrat de sortie).
+  - **Entrées** :
+    - le journal (`events.jsonl`, `events.1.jsonl`), lu tel quel. Le **schéma v1 ne change pas** ;
+    - les transcripts `<config>/projects/*/<sessionId>.jsonl` et `<sessionId>/subagents/agent-<agentId>.jsonl` + `.meta.json`, où `<config>` vaut `CLAUDE_CONFIG_DIR`, sinon `~/.claude` ;
+    - les sessions du projet, qui sont les `sessionId` du journal.
+  - **Champs lus** : `timestamp`, `message.id`, `message.model` et les 4 compteurs de `message.usage`. On y ajoute `agentType` et `toolUseId` de `.meta.json`, et l'en-tête de mission de la première ligne d'un agent (`MODE`, `ISSUE`, `PR`, `TENTATIVE`). Rien d'autre.
+  - **Comptage** : on déduplique par `message.id`, en gardant la dernière occurrence. `total` = entrée + sortie + cache lu + cache écrit.
+  - **Attribution d'un agent**, par ordre de priorité :
+    1. `toolUseId` (`.meta.json` → `agent.requested`) ;
+    2. sinon `agentId` (événements `agent.*`) ;
+    3. sinon l'en-tête de mission.
+
+    Un agent sans `issue` va en `horsFeature`. Un agent hors squad n'est pas compté.
+  - **Attribution du CP** : au milestone de la dernière feature dont un agent a été demandé avant le message, sinon au groupe « Cadrage ». Pas de ventilation par feature.
+  - **Sortie (contrat JSON v1)** :
+    ```
+    Usage   = { input, output, cacheRead, cacheWrite, total, messages }
+    Rapport = { v: 1, generatedAt, project, totals: Usage,
+                cp: { sessions, usage, parMilestone: [{ milestone, usage }] },
+                milestones: [{ titre, issues, usage }],
+                features: [{ issue, milestone, agents, usage }],
+                horsFeature: { agents, usage },
+                agents: [{ agentId, role, mode, issue, pr, attempt, model, debut, fin, usage }],
+                nonAttribue: { usage, fichiers },
+                warnings: [{ code, message }] }   // TRANSCRIPTS_ABSENTS, JOURNAL_ABSENT, LIGNES_ILLISIBLES, AGENTS_NON_ATTRIBUES, FORMAT_ANCIEN
+    ```
+    Un identifiant de feature (`issue`, `issues[]`, `--milestone "<titre>=<id>,…"`) est un numéro d'issue, ou `F-<n>` en mode économe local. Le journal n'a pas d'`issue` en économe local : elle est alors lue dans l'en-tête de mission du transcript ([ADR 0013](adr/0013-contrat-lecture-transcripts-et-attribution.md), point 10).
+  - **Persistance** : aucune côté CLI. Le bilan de chaque milestone est recopié par le CP dans le corps de PR `release/*` (mode normal et hybride) ou dans `docs/squad/releases/m<k>-<slug>.md` (économe local). Il survit ainsi à la purge des transcripts (`cleanupPeriodDays`, 30 jours par défaut).
 
 ## 7. Sécurité
 
@@ -281,6 +346,11 @@ Le niveau retenu est celui d'un **outil local mono-utilisateur, en lecture seule
 - Le collecteur ne fait jamais échouer la session. Il est `async`, attrape toutes ses erreurs et sort toujours avec le code 0. `guard.cjs` reste un hook distinct, synchrone et inchangé.
 - Dépendances : aucune à l'exécution. Three.js est vendoré à une version épinglée, avec sa licence MIT (`viz/public/vendor/three/LICENSE`, `VERSION`). Les assets Kenney sont vendorés avec leurs licences CC0 et un `SOURCE.md` qui donne la version et le sha256 de chaque fichier. Les devDependencies sont figées par `package-lock.json`.
 - Les bulles de verdict et les étiquettes de dossier `#N` suivent la même règle que les titres : elles sont écrites par `textContent`.
+- **CLI `conso`** ([ADR 0013](adr/0013-contrat-lecture-transcripts-et-attribution.md)).
+  - Lecture seule, sans réseau, sans `gh` et sans écriture.
+  - Les transcripts contiennent prompts, code et sorties d'outils, mais la CLI n'en extrait que des compteurs et des identifiants. Sa sortie ne contient que des numéros d'issue et de PR, des rôles, des modes, des modèles, des dates et des nombres.
+  - Les arguments sont validés par `node:util.parseArgs` en mode strict : une option inconnue donne le code 2.
+  - Les fixtures `tests/fixtures/transcripts/` sont **anonymisées** : contenu remplacé, identifiants réécrits, chemins neutralisés.
 
 ## 8. Réutiliser avant de construire
 
@@ -294,14 +364,17 @@ Le niveau retenu est celui d'un **outil local mono-utilisateur, en lecture seule
 | Chargement et animation des modèles | `three/addons/loaders/GLTFLoader.js`, `three/addons/utils/SkeletonUtils.js` (`clone`), `THREE.AnimationMixer` | Standard Three.js. On clone plusieurs bonhommes sur un même modèle, avec fondu entre clips. | Chargeur ou squelette maison |
 | Kanban de post-its | `THREE.InstancedMesh` | Un seul appel de dessin pour des centaines de post-its. | Un mesh par feature |
 | Push temps réel | Server-Sent Events (`text/event-stream`, `EventSource`) | Le flux est unidirectionnel, la reconnexion est native, et on n'ajoute aucune dépendance. | WebSocket (`ws`, dépendance npm) |
-| Collecte d'événements | Hooks Claude Code (`PreToolUse`, `PostToolUse`, `SubagentStart`, `SubagentStop`), en mode `async: true` | C'est le point d'extension officiel, sans latence pour la session. | Analyser les transcripts JSONL de Claude Code (format interne, non contractuel) |
+| Collecte d'événements | Hooks Claude Code (`PreToolUse`, `PostToolUse`, `SubagentStart`, `SubagentStop`), en mode `async: true` | C'est le point d'extension officiel, sans latence pour la session. | Analyser les transcripts JSONL de Claude Code (format interne, non contractuel) **pour les événements**. Ils sont en revanche retenus pour l'usage, faute d'autre source ([ADR 0013](adr/0013-contrat-lecture-transcripts-et-attribution.md)). |
+| Chiffres de consommation | Transcripts JSONL de Claude Code (`message.usage`), lus par `conso` | Seule source exacte et détaillée (cache compris), qui couvre le CP et les agents. | Hooks (`tool_response.totalTokens` : total seul, CP invisible), télémétrie OpenTelemetry (collecteur et backend requis) |
+| Attribution agent → feature, tentative | Journal `events.jsonl` (schéma v1) et `.meta.json` des subagents | Existent déjà ; aucun changement du collecteur. | Schéma v2 avec des champs d'usage (double stockage, contrat de `viz-server` modifié) |
+| Rapport de consommation | CLI `conso` sans dépendance (`node:readline`, `node:util.parseArgs`) | Connaît les features, les tentatives et les milestones de la squad ; fonctionne sans réseau dans les deux modes. | **ccusage** (npm 20.0.x, maintenu) : ignore la squad, s'exécute par `npx` (réseau) ; `/usage` intégré (aucune ventilation par feature) |
 | Accès GitHub | CLI `gh`, déjà requise | On réutilise l'authentification de l'utilisateur, sans token à gérer, comme `guard.cjs`. | API REST avec un token (secret à gérer), Octokit (dépendance) |
 | Racine du journal | `git rev-parse --git-common-dir` | Partagé nativement par tous les worktrees du repo. | `${CLAUDE_PLUGIN_DATA}` (pas garanti dans les skills, indexation par projet à faire soi-même) |
 | Tests | `node:test`, `node:assert/strict` | Intégrés à Node ≥ 22, avec mocks et timers. | Jest, Vitest (dépendances) |
 | Lint | ESLint 10, `@eslint/js` et `globals` | Standard, utilisé en dev uniquement. | Biome (moins répandu ici) |
 | Interpolations | `motion.js` existant (courbes, fondus, réduction de mouvement) | Déjà en place et testé. | `@tweenjs/tween.js`, GSAP |
 | Déplacements | Graphe fixe de points de passage (`paths.js`) | Les postes sont fixes : un chemin prédéfini suffit. | `three-pathfinding` (navmesh), A* maison |
-| **Sur mesure** | Normalisation des payloads et parsing des commandes `gh`, réducteur d'état ([ADR 0007](adr/0007-logique-metier-sur-mesure.md)). Plan du bureau et scène ([ADR 0009](adr/0009-metaphore-bureau-3d.md)). Machine d'états des bonhommes et chemins ([ADR 0011](adr/0011-animation-scriptee-des-bonhommes.md)). | C'est la valeur métier propre au workflow gepet-squad : aucune brique existante ne la fournit. | — |
+| **Sur mesure** | Normalisation des payloads et parsing des commandes `gh`, réducteur d'état ([ADR 0007](adr/0007-logique-metier-sur-mesure.md)). Plan du bureau et scène ([ADR 0009](adr/0009-metaphore-bureau-3d.md)). Machine d'états des bonhommes et chemins ([ADR 0011](adr/0011-animation-scriptee-des-bonhommes.md)). Attribution et agrégation de la consommation ([ADR 0012](adr/0012-sous-projet-conso-cli-sans-dependance.md), [ADR 0013](adr/0013-contrat-lecture-transcripts-et-attribution.md)). | C'est la valeur métier propre au workflow gepet-squad : aucune brique existante ne la fournit. | — |
 
 ## 9. Conventions
 
@@ -335,10 +408,17 @@ Le niveau retenu est celui d'un **outil local mono-utilisateur, en lecture seule
   viz/public/js/main.js       amorçage, fetch /state, EventSource
   viz/public/vendor/three/    build/three.module.js, build/three.core.js, addons/{controls,renderers,loaders,utils}/…, LICENSE, VERSION
   viz/public/vendor/kenney/   characters/*.glb, characters/Textures/colormap.png, furniture/*.glb, LICENSE-*.txt, SOURCE.md
+  conso/cli.cjs               CLI de consommation : arguments (parseArgs strict), assemblage, stdout, codes 0/1/2
+  conso/lib/transcripts.cjs   ligne JSONL → { messageId, model, ts, usage } | null ; déduplication par message.id (pur)
+  conso/lib/attribution.cjs   journal + .meta.json + en-tête de mission → agent attribué ; CP → milestone (pur)
+  conso/lib/aggregate.cjs     messages attribués → rapport JSON v1 (pur)
+  conso/lib/format.cjs        rapport → tableaux texte (pur)
+  conso/lib/sources.cjs       localisation (CLAUDE_CONFIG_DIR, sessions du journal) et lecture en flux (readline)
   skills/gepet-squad-viz/SKILL.md
+  skills/gepet-squad-status/SKILL.md   section « Consommation » (appelle conso/cli.cjs)
   scripts/vendor-three.sh     mise à jour du vendoring Three.js (dev uniquement, npm pack)
   scripts/vendor-assets.sh    extraction des assets Kenney depuis les zips (dev uniquement, sans téléchargement)
-  tests/hooks/  tests/viz-server/  tests/viz-web/  tests/fixtures/
+  tests/hooks/  tests/viz-server/  tests/viz-web/  tests/conso/  tests/fixtures/ (dont transcripts/)
   ```
 - **Nommage** :
   - fichiers en kebab-case, sans accent ;
@@ -350,19 +430,22 @@ Le niveau retenu est celui d'un **outil local mono-utilisateur, en lecture seule
   - le serveur logue sur stderr, au format `[gepet-squad-viz] niveau message` ;
   - si `gh` échoue, le serveur garde le dernier instantané et pousse un événement SSE `warning` ;
   - côté front, si WebGL est indisponible, on affiche une liste texte des statuts ;
+  - la CLI `conso` ne plante jamais sur une donnée : ligne illisible, fichier absent ou champ inattendu sont ignorés et comptés dans `warnings`. Seuls l'absence de projet squad (code 1) et des arguments invalides (code 2) l'arrêtent, avec un message sur stderr au format `[gepet-squad-conso] erreur message` ;
   - si un asset ne se charge pas, la vue reste utilisable. Un bonhomme est remplacé par une capsule colorée par type, un meuble est omis, et `ui.js` affiche un avertissement.
 - **Fixtures** : les payloads de hooks réels sont capturés une fois avec `claude --debug-file`, puis anonymisés dans `tests/fixtures/hooks/`. Chaque type d'événement doit avoir au moins une fixture réelle.
-- **Commits** : Conventional Commits en français (`feat(viz-server): …`), comme l'historique actuel. Bump semver dans `.claude-plugin/plugin.json` et une entrée dans `CHANGELOG.md` par changement de comportement. Chaque milestone donne lieu à un bump mineur, porté par sa dernière feature : **0.2.0** (M1, collecte), **0.3.0** (M2, serveur), **0.4.0** (M3, vue 3D et commande), **0.6.0** (M4, économie de tokens), **0.8.0** (M5, bureau et kanban, agents encore en sphères), **0.9.0** (M6, bonshommes animés, retrait du bloom). Aucune autre feature ne touche `plugin.json` ni `CHANGELOG.md`.
+- **Commits** : Conventional Commits en français (`feat(viz-server): …`), comme l'historique actuel. Bump semver dans `.claude-plugin/plugin.json` et une entrée dans `CHANGELOG.md` par changement de comportement. Chaque milestone donne lieu à un bump mineur, porté par sa dernière feature : **0.2.0** (M1, collecte), **0.3.0** (M2, serveur), **0.4.0** (M3, vue 3D et commande), **0.6.0** (M4, économie de tokens), **0.8.0** (M5, bureau et kanban, agents encore en sphères), **0.9.0** (M6, bonshommes animés, retrait du bloom), **0.11.0** (M7, consommation). Aucune autre feature ne touche `plugin.json` ni `CHANGELOG.md`.
 - **Binaires** : `.gitattributes` déclare `*.glb binary` et `*.png binary`, que la règle `* text=auto eol=lf` ne doit pas convertir.
 - **Stratégie de tests** : voir l'[ADR 0006](adr/0006-strategie-de-tests.md).
 
 ## 10. Hébergement & CI
 
 - **Exécution** : 100 % locale, livrée dans le plugin. Aucun service distant autre que GitHub, appelé via `gh`.
-- **CI** : GitHub Actions `.github/workflows/ci.yml`, sur chaque PR vers `develop` et chaque push sur `develop`.
-  - Matrice `ubuntu-latest` et `windows-latest`, Node 22 : le suivi de fichier et les chemins diffèrent sous Windows.
-  - Étapes : `npm ci` → `npm run lint` → `npm test` → `bash -n scripts/bootstrap.sh` (et `bash -n scripts/vendor-assets.sh` une fois le script livré).
-  - `claude plugin validate .` tourne en CI si la CLI s'installe sans authentification, sinon c'est une vérification locale obligatoire avant la PR.
+- **CI** (`ci.mode` = `release`, depuis la 0.10.0, voir `tests-et-ci.md`) :
+  - **features** : `ci.commands` de `.gepet-squad.json`, lancées en local par le développeur avant livraison, puis par le testeur, qui sert de barrière : `npm ci`, `npm run lint`, `npm test`, `bash -n` des trois scripts ;
+  - **release** : GitHub Actions `.github/workflows/ci.yml`, **uniquement** sur la PR `release/*` → `main`, avec `concurrency` et `cancel-in-progress`, sans artefact. Il garde la matrice `ubuntu-latest` et `windows-latest` (Node 22, `timeout-minutes: 15`), parce que le plugin vise aussi Windows (suivi de fichier, chemins, `CLAUDE_CONFIG_DIR`). Elle ne tourne qu'une fois par milestone. Étapes : celles de `ci.commands` ;
+  - la consommation (M7) ne change ni `ci.commands` ni le workflow : `npm test` découvre `tests/conso/`, et `npm run lint` couvre `conso/` ;
+  - `claude plugin validate .` reste une vérification locale obligatoire avant la PR ;
+  - audit des dépendances à chaque release : `npm audit --audit-level=high` à la racine (devDependencies seulement).
 - **Environnements** : `develop` (intégration) et `main` (release mergée par l'utilisateur). Pas de déploiement : la distribution passe par la marketplace du repo (`/plugin marketplace update claude-gepet-squad`).
 
 ## 11. Décisions (ADR)
@@ -372,9 +455,11 @@ Le niveau retenu est celui d'un **outil local mono-utilisateur, en lecture seule
 - [0003 — Journal d'événements local et état fusionné avec GitHub](adr/0003-journal-evenements-et-etat-fusionne.md)
 - [0004 — Capture du cycle de vie des agents, y compris en arrière-plan](adr/0004-capture-cycle-de-vie-des-agents.md)
 - [0005 — Sécurité du serveur local](adr/0005-securite-serveur-local.md)
-- [0006 — Stratégie de tests](adr/0006-strategie-de-tests.md) (complétée par 0009 et 0010)
+- [0006 — Stratégie de tests](adr/0006-strategie-de-tests.md) (complétée par 0009, 0010 et 0012 ; la CI suit `ci.mode` = `release` depuis la 0.10.0)
 - [0007 — Logique métier sur mesure (normalisation, réducteur, scène)](adr/0007-logique-metier-sur-mesure.md) (point 3 remplacé par 0009 et 0011)
 - [0008 — Reprise d'un agent : cycle de vie non monotone](adr/0008-reprise-agent-cycle-non-monotone.md)
 - [0009 — Métaphore « bureau 3D » à la place du pipeline abstrait](adr/0009-metaphore-bureau-3d.md)
 - [0010 — Assets 3D CC0 vendorés (Kenney) et chargement glTF](adr/0010-assets-3d-cc0-vendores-gltf.md)
 - [0011 — Animation scriptée des bonhommes : machine d'états pure et chemins prédéfinis](adr/0011-animation-scriptee-des-bonhommes.md)
+- [0012 — Sous-projet `conso` : CLI locale de consommation, sans dépendance](adr/0012-sous-projet-conso-cli-sans-dependance.md) (découpage, stack, interface, affichage, tests)
+- [0013 — Contrat de lecture des transcripts Claude Code et attribution de la consommation](adr/0013-contrat-lecture-transcripts-et-attribution.md) (données, attribution, sécurité, purge)
