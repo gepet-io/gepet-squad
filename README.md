@@ -1,3 +1,5 @@
+<img width="1280" height="640" alt="gepet-squad-miniature" src="https://github.com/user-attachments/assets/75400e91-9772-4463-b9f0-7fd07bca8f55" />
+
 # gepet-squad
 
 Plugin Claude Code : une **squad IT d'agents** qui transforme un simple prompt en projet livré.
