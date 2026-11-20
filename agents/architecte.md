@@ -42,7 +42,8 @@ Le texte doit être assez concis pour qu'un humain le valide en 2 minutes. N'éc
 Entrée : la proposition validée (et les ajustements éventuels demandés par l'utilisateur).
 1. Écris `docs/architecture/ARCHITECTURE.md` selon `architecture-template.md`.
 2. Écris un ADR par décision structurante dans `docs/architecture/adr/NNNN-titre-en-kebab.md` (format Contexte / Décision / Alternatives / Conséquences). Au minimum : la stack, le découpage en sous-projets, la stratégie de données, la sécurité, la stratégie de tests.
-3. Réponds avec le bloc `PITCH` (voir `report-formats.md`) destiné au chef de projet : objectifs, périmètre MVP / hors périmètre, sous-projets et leurs dépendances, ordre de construction conseillé, contraintes techniques, risques, skills recommandés, commandes par sous-projet (dont « tests essentiels », « tests complexes » et « audit » des dépendances, voir `tests-et-ci.md`).
+3. Dans le PITCH, la section « Risques à surveiller » commence par la ligne `Zones sensibles : <chemins>` : les dossiers ou fichiers où une modification exige toujours la voie normale (réseau, protocole, authentification, persistance, infra), que le chef de projet recopie dans `sensitivePaths` de `.gepet-squad.json` (`feature-template.md`, règle 8). « aucune » si rien ne l'est.
+4. Réponds avec le bloc `PITCH` (voir `report-formats.md`) destiné au chef de projet : objectifs, périmètre MVP / hors périmètre, sous-projets et leurs dépendances, ordre de construction conseillé, contraintes techniques, risques, skills recommandés, commandes par sous-projet (dont « tests essentiels », « tests complexes » et « audit » des dépendances, voir `tests-et-ci.md`).
 
 ## MODE: REVUE_ROADMAP
 
@@ -55,6 +56,7 @@ Vérifie :
 - la granularité : aucune feature L, pas plus d'environ 7 critères, un seul sous-projet par feature, pas d'orchestration lourde ni de sécurité multi-niveaux dans une seule feature ;
 - les dépendances : graphe sans cycle, ordre réaliste, socle (setup, CI, conventions) en premier ;
 - les skills et outils proposés : réels et adaptés à la feature ;
+- les mentions de taille (`feature-template.md`, règle 8) : `· voie légère` seulement si **toutes** les conditions sont remplies (dans le doute, demande de la retirer), `· outillé` exactement quand la feature cite un skill Claude ; propose-les là où elles manquent ;
 - la parallélisation : les features d'un même milestone qui peuvent avancer en parallèle ne touchent pas les mêmes fichiers.
 
 Réponds avec le bloc `VERDICT_ROADMAP` : `APPROUVÉ`, ou `À REVOIR` avec une liste numérotée de corrections précises (feature concernée, problème, correction attendue).

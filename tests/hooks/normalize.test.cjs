@@ -356,6 +356,11 @@ describe("extraction du prompt", () => {
 });
 
 describe("extraction du rapport", () => {
+  test("RAPPORT_DEV : statut RELAIS (budget de contexte)", () => {
+    const report = "RAPPORT_DEV\nStatut: RELAIS — Issue: #2 — PR: aucune — Branche: feature/2-x @abc1234 — tentative 0";
+    assert.deepEqual(extractReport(report), { block: "RAPPORT_DEV", verdict: "RELAIS" });
+  });
+
   test("RAPPORT_DEV : statut", () => {
     assert.deepEqual(extractReport("RAPPORT_DEV\nStatut: BLOQUÉ\nIssue: #2"), { block: "RAPPORT_DEV", verdict: "BLOQUÉ" });
     assert.deepEqual(extractReport("RAPPORT_DEV\nStatut: LIVRÉ"), { block: "RAPPORT_DEV", verdict: "LIVRÉ" });

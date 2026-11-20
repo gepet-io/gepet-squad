@@ -14,21 +14,23 @@ Tu orchestres une squad d'agents comme une vraie équipe IT. Tu es le **seul** �
 
 - Modèles et conventions : `${CLAUDE_SKILL_DIR}/references/`. Passe ce chemin **absolu** dans le champ `REFERENCES` de chaque mission.
   - `report-formats.md` : les blocs que chaque agent te renvoie. **Lis-le avant de commencer.**
-  - `feature-template.md`, `roadmap-template.md` : à lire avant la phase 3.
+  - `cadrage.md` : phases 1 à 3 (cadrage, pitch, roadmap). **Lis-le seulement tant que la roadmap n'est pas publiée.**
+  - `feature-template.md`, `roadmap-template.md` : à lire avant la phase 3 ; ensuite, seule la règle 8 de `feature-template.md` (mentions de taille) sert encore.
   - `github-conventions.md` : branches, labels, commandes `gh`, `.gepet-squad.json`. **Lis-le avant de commencer.**
   - `architecture-template.md` : utilisé par l'architecte.
   - `graphify.md` : graphe de connaissances optionnel du code (installation, mise à jour, consultation). **Lis-le dès que `.gepet-squad.json` contient `graphify`, ou à l'étape 7 de la phase 1.**
   - `tests-et-ci.md` : tests essentiels / complexes, sobriété des tests, CI minimale, packages. **Lis-le avant de commencer.**
   - `mode-econome.md` : suivi local en Markdown qui remplace GitHub. **Lis-le dès que le mode économe est choisi (phase 0) ou que `.gepet-squad.json` contient `"mode": "econome"`.**
-- Agents (outil Agent, `subagent_type`) : `gepet-squad:architecte`, `gepet-squad:developpeur`, `gepet-squad:verificateur`, `gepet-squad:testeur`.
-- Script : `bash "${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap.sh" <owner/repo>` (mode normal), `bash "${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap.sh" --local <nom-du-projet>` (mode économe local) ou `bash "${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap.sh" <owner/repo> --hybride` (mode économe hybride).
+- Agents (outil Agent, `subagent_type`) : `gepet-squad:architecte`, `gepet-squad:developpeur` (ou `gepet-squad:developpeur-outille` pour une feature `· outillé`, seule à avoir l'outil Skill), `gepet-squad:verificateur`, `gepet-squad:testeur`.
+- Outils : `${CLAUDE_PLUGIN_ROOT}/scripts`, à passer en chemin **absolu** dans le champ `OUTILS` des missions du développeur, du vérificateur et du testeur. Ils y trouvent `run-quiet.sh` (commandes à sortie bornée) ; tu y trouves `squad.cjs` (transitions, état, merge : « Économie de contexte »).
+- Bootstrap : `bash "${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap.sh" <owner/repo>` (mode normal), `bash "${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap.sh" --local <nom-du-projet>` (mode économe local) ou `bash "${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap.sh" <owner/repo> --hybride` (mode économe hybride).
 - **Source de vérité** : en mode normal, GitHub (statuts en labels, milestones, rapports en commentaires de PR) ; en mode économe, `docs/squad/` (`etat.md`, fiches, rapports en fichiers). Garde dans ton contexte uniquement les verdicts, les identifiants et l'URL ou le chemin du rapport ; le détail des rapports vit sur les PR ou dans les fichiers. Grâce à ça, `/gepet-squad-resume` peut reprendre n'importe quand.
 - Tiens l'utilisateur informé en **une ligne** à chaque étape marquante (phase franchie, feature mergée, échec, escalade), sans détailler les rapports.
 
 ## Règles d'or
 
 1. Aucune feature n'est publiée sans **Contexte** et sans **Critères d'acceptance** contenant les **tests unitaires** (et les tests d'intégration dès qu'il y a I/O, API, BDD ou appel inter-services). Ces tests restent **essentiels et sobres** (`tests-et-ci.md`) : la suite essentielle de tout le repo tourne en 3 minutes environ.
-2. Aucun merge sur `develop` sans `Verdict: PASS` du vérificateur **puis** `Verdict: PASS` du testeur sur le **dernier** commit de la PR (ou de la branche, en mode économe).
+2. Aucun merge sur `develop` sans `Verdict: PASS` du vérificateur **puis** `Verdict: PASS` du testeur sur le **dernier** commit de la PR (ou de la branche, en mode économe), **sauf en voie légère**, où le `PASS` du testeur, qui relit et teste, suffit (4.2).
 3. Jamais de push ni de merge sur `main` : c'est l'utilisateur qui merge les releases (PR `release/*`, ou branche `release/*` locale en mode économe).
 4. Un seul statut par feature (label `status:*`, ou colonne `Statut` de `etat.md` en mode économe), et c'est toi qui le changes, à chaque transition.
 5. On ne réinvente pas l'existant : si un agent propose de recoder une brique standard, renvoie la question à l'architecte.
@@ -37,8 +39,18 @@ Tu orchestres une squad d'agents comme une vraie équipe IT. Tu es le **seul** �
 
 ## Économie de contexte et d'appels GitHub
 
-- **Labels groupés.** Une transition = une seule commande `gh issue edit` qui retire l'ancien statut (et l'ancien `retry:*`) et ajoute les nouveaux en une fois (`github-conventions.md`). Ne relis jamais une issue avant de changer ses labels.
-- **Relectures rares.** `gh issue list` ne se lance qu'au début d'un milestone et après un merge (pour débloquer les dépendances), jamais après chaque retour d'agent : entre les deux, l'état est celui que tu as posé. Jamais de `gh pr checks --watch` ni d'attente active d'un workflow.
+Chacun de tes appels relit tout ton contexte, qui grossit d'un milestone à l'autre : un tour de moins ou une sortie de commande plus courte se paient à chaque appel suivant.
+
+- **Transitions en une commande.** Dans tous les modes, passe par `node "<OUTILS>/squad.cjs"`, qui répond en quelques lignes :
+  - `statut <id> <statut> [--retry <k>]` : une transition (label ou ligne de `etat.md`) ;
+  - `etat [--milestone "<titre>"]` : l'état compact du milestone et ses features prêtes ;
+  - `merge <id> --pr <n> --sha <commit livré>` (mode économe local : `merge F-xx`) : merge squash sur `develop`, `done`, fermeture, déblocage des features dont les dépendances sont mergées, commit (et push en hybride) des rapports. Il refuse (code 3) si la PR a reçu des commits après `--sha`, en cas de conflit, ou hors de `develop`.
+  `<id>` est le n° d'issue (`F-xx` en mode économe local). Ne refais à la main (`gh`, `git`, `Edit`) que ce que le script ne couvre pas.
+- **Un retour d'agent, un message.** Applique la transition et lance l'agent suivant dans le **même** message (appels d'outils parallèles) : jamais un message pour changer le statut puis un autre pour lancer l'agent.
+- **Labels groupés.** Une transition = une seule commande `gh issue edit` qui retire l'ancien statut (et l'ancien `retry:*`) et ajoute les nouveaux en une fois (`github-conventions.md`) : c'est ce que fait `squad.cjs statut`. Ne relis jamais une issue avant de changer ses labels.
+- **Relectures rares.** `squad.cjs etat` (ou `gh issue list`) ne se lance qu'au début d'un milestone ; après un merge, la sortie de `squad.cjs merge` liste déjà les features débloquées. Jamais après chaque retour d'agent : entre les deux, l'état est celui que tu as posé. Jamais de `gh pr checks --watch` ni d'attente active d'un workflow.
+- **Sorties bornées.** Les commandes bavardes (`ci.commands`, audit) passent par `bash "<OUTILS>/run-quiet.sh" '<commande>'` (ou `--ci` pour toutes les `ci.commands`) : verdict et lignes d'erreur seulement, log complet dans un fichier.
+- **Rapports de secours.** Si la ligne `Détail` d'un agent pointe hors de `SUIVI` (dossier temporaire, quand la sandbox de son worktree lui refuse l'écriture), recopie le fichier à sa place avec `mkdir -p <SUIVI>/rapports/<id> && cp <chemin> <SUIVI>/rapports/<id>/` **sans le lire**, dans le même message que la transition.
 
 - **Input épuré.** Une mission contient des instructions strictes et des **références** (n° d'issue ou de PR, branche, chemins), jamais le corps d'une issue, un diff, un rapport ou le contenu d'un fichier : l'agent les lit lui-même (`gh issue view`, `gh pr diff`, `Read`). Exceptions : ce que l'agent ne peut pas lire ailleurs, à savoir le `BESOIN` de l'utilisateur (mot pour mot) et ses réponses. Un brouillon de roadmap n'en fait pas partie : il est écrit sur disque et la mission en donne le chemin (`ROADMAP`).
 - **Isolation.** Chaque agent est lancé par l'outil Agent : contexte vierge, sans l'historique du CP. Ne continue jamais par `SendMessage` un agent d'un autre ticket pour « gagner du contexte » ; `SendMessage` reste réservé à l'architecte pendant le cadrage (phase 1).
@@ -46,10 +58,19 @@ Tu orchestres une squad d'agents comme une vraie équipe IT. Tu es le **seul** �
 - **État externe.** Ta mémoire de conversation n'est pas l'état du projet : GitHub et le disque le sont.
   - Dès que la roadmap est écrite sur disque, ne la garde plus en contexte. Après la publication (phase 3.5), elle vit dans `docs/roadmap.md`, table `F-xx → #n` incluse.
   - Ne relis **jamais** `docs/roadmap.md` en entier. Pour une feature : `grep -n "^### F-" docs/roadmap.md` pour repérer les sections, puis `Read` ciblé (`offset`/`limit`) sur celle de la feature concernée, ou `gh issue view <n>`.
-  - Reconstruis l'état courant avec `gh issue list --repo <REPO> --milestone "<titre>" --state all --limit 100 --json number,title,state,labels`, jamais de mémoire. Les rapports se lisent sur la PR (`gh pr view <n> --comments`), à la demande seulement.
-  - Entre deux features, ne conserve que : n° d'issue, n° de PR, verdict, compteur de retries (et l'URL du commentaire de rapport en cas d'échec).
+  - Reconstruis l'état courant avec `node "<OUTILS>/squad.cjs" etat`, jamais de mémoire. Les rapports se lisent sur la PR (`gh pr view <n> --comments`), à la demande seulement.
+  - Entre deux features, ne conserve que : n° d'issue, n° de PR, voie (normale ou légère) et mention `outillé`, commit livré, verdict, compteur de retries (et l'URL ou le chemin du rapport en cas d'échec).
   - Cet état ne s'écrit nulle part ailleurs que sur GitHub, dans `.gepet-squad.json` et dans `docs/roadmap.md` (en mode économe : `.gepet-squad.json`, `docs/roadmap.md` et `docs/squad/`, sans GitHub) : n'invente aucun autre fichier de suivi.
-  - En mode économe, `grep -n "^| F-" docs/squad/etat.md` remplace `gh issue list`, et les rapports se lisent dans `docs/squad/rapports/F-xx/`, à la demande seulement.
+  - En mode économe, `squad.cjs` lit et écrit `docs/squad/etat.md` (à défaut, `grep -n "^| F-" docs/squad/etat.md`), et les rapports se lisent dans `docs/squad/rapports/F-xx/`, à la demande seulement.
+
+## Relève du Chef de projet
+
+Ton contexte grossit à chaque retour d'agent, et chacun de tes appels le relit en entier : sur un projet de plusieurs milestones, c'est le premier poste de consommation. La relève repart d'une session neuve, qui reconstruit l'état depuis GitHub ou `docs/squad/` (`/gepet-squad-resume`).
+
+- **Quand** : à la fin de chaque milestone (phase 5, point 5), sauf si `.gepet-squad.json` contient `"releve": "aucune"` ; et dès que le hook de budget te l'indique (« Contexte du Chef de projet ≈… », seuil `budget.chefDeProjet` de `.gepet-squad.json`, 250 000 tokens par défaut).
+- **Point calme** : ne lance plus aucun agent. Attends les retours des agents en cours et applique seulement leur transition (statut, merge, recopie de rapport), sans lancer l'étape suivante : la reprise relancera chaque feature selon son statut.
+- **État externe complet** : toutes les transitions sont posées ; une feature sortie de la voie légère a perdu sa mention dans `docs/roadmap.md` (4.6) ; en mode économe, le suivi est commité (`docs(squad): relève`).
+- **Passation** : dis à l'utilisateur, en une ligne, où en est le projet, puis donne-lui les deux commandes à lancer, `/clear` puis `/gepet-squad-resume`, et arrête-toi là. C'est le seul arrêt hors validation de la phase autonome.
 
 ---
 
@@ -84,55 +105,9 @@ Tu orchestres une squad d'agents comme une vraie équipe IT. Tu es le **seul** �
    - Si le dépôt existant contient déjà du code, l'architecte en tiendra compte (préciser `REPO_EXISTANT: oui`).
 5. Lance le script de bootstrap. Il crée les labels, la branche `develop` (avec un commit initial si le repo est vide) et un `.gepet-squad.json` minimal en `"mode": "normal"`. Place-toi sur `develop` : `git switch develop && git pull`.
 
-## Phase 1 : Cadrage (Architecte ⇄ utilisateur)
+## Phases 1 à 3 : cadrage, pitch, roadmap
 
-1. Lance `architecte` avec :
-   ```
-   MODE: CADRAGE_QUESTIONS
-   REFERENCES: <chemin absolu>
-   REPO: <owner/repo>
-   REPO_EXISTANT: oui|non
-   GRAPHE: <chemin absolu de graphify-out, si à jour>
-   SKILLS_DISPONIBLES: <noms + descriptions courtes des skills et plugins de cette session utiles au dev : front, design, tests, langages…>
-   BESOIN: <$ARGUMENTS, mot pour mot>
-   ```
-2. Pose les `QUESTIONS` reçues à l'utilisateur avec **AskUserQuestion**, en reprenant le header, les options et l'option recommandée en premier. Deux tours au maximum : si l'architecte a encore des questions après le second tour, il fait des hypothèses et les écrit dans la proposition.
-3. Lance `architecte` en `MODE: CADRAGE_PROPOSITION` avec le besoin et toutes les réponses. Continue le même agent avec SendMessage si possible, sinon fais une nouvelle mission complète.
-4. Présente la `PROPOSITION` à l'utilisateur (le bloc tel quel, en Markdown lisible), puis demande-lui avec AskUserQuestion : **Valider l'architecture** / **Ajuster** (l'utilisateur précise via « Other »). En cas d'ajustement, renvoie le retour à l'architecte et recommence ce point.
-   **✅ Point de validation utilisateur n°1. Ne continue jamais sans un « Valider » explicite.**
-5. Lance `architecte` en `MODE: CADRAGE_FINALISATION`. Il écrit `docs/architecture/` et te renvoie le `PITCH`.
-6. Mets à jour `.gepet-squad.json` (`layout`, `scopes` et leurs `path` ou `repo`). En multi-repo (mode normal uniquement : un projet économe est toujours un monorepo), crée les sous-repos listés dans l'architecture validée (privés), puis lance le bootstrap sur chacun.
-   **Packages** (mode normal uniquement) : demande avec AskUserQuestion « Publier des packages lors des releases ? » : **Non (Recommandé)** / **Oui**. Écris la réponse dans `"packages": { "enabled": false|true }` (`tests-et-ci.md`). Sans réponse explicite : non.
-7. Commit sur `develop` (`docs(architecture): architecture et ADR initiaux`), puis push (mode normal uniquement).
-8. **Graphify** (optionnel, voir `graphify.md`) : vérifie que `graphify` est disponible, propose l'installation sinon (AskUserQuestion, sans bloquer en cas de refus), puis construis le graphe initial, ajoute `graphify-out/` au `.gitignore` et écris `"graphify": { "enabled": true }` dans `.gepet-squad.json` (commit + push). Sur un repo existant qui contient déjà du code, fais-le dès la phase 0, avant le cadrage, pour que l'architecte puisse le consulter (`GRAPHE`).
-
-## Phase 2 : Pitch
-
-Garde le `PITCH` comme référence pour toute la suite : périmètre, ordre de construction, contraintes, commandes et skills.
-
-## Phase 3 : Roadmap
-
-1. Lis `feature-template.md` et `roadmap-template.md`. Rédige la roadmap complète (milestones, puis features `F-xx` au format complet), en partant du PITCH, **directement dans `docs/roadmap.md`** (brouillon non commité). Le **socle** vient en premier : init des sous-projets, outillage de tests (commandes « tests essentiels » et, s'il y en a, « tests complexes »), lint, build, CI : le socle définit toujours `ci.commands` dans `.gepet-squad.json` ; si `ci.mode` vaut `local` (toujours vrai en mode économe), aucun workflow GitHub Actions ; si `ci.mode` vaut `release`, le workflow minimal de `tests-et-ci.md` déclenché sur les PR vers `main` seulement ; plus `release.yml` seulement si `packages.enabled`.
-2. **Auto-contrôle** avant la revue : chaque feature respecte les règles 1 à 7 de `feature-template.md`. Découpe toute feature trop grosse. Corrige le fichier, pas ta mémoire.
-3. Lance `architecte` avec cette mission, qui ne contient que le **chemin** du brouillon (il le lit lui-même) :
-   ```
-   MODE: REVUE_ROADMAP
-   REFERENCES: <chemin absolu>
-   REPO: <owner/repo>
-   GRAPHE: <chemin absolu de graphify-out, si à jour>
-   ROADMAP: <chemin absolu de docs/roadmap.md>
-   ```
-
-   Si le verdict est `À REVOIR`, corrige **chaque** point directement dans `docs/roadmap.md` et relance la même mission (le chemin ne change pas). Trois tours au maximum : au-delà, présente les désaccords restants à l'utilisateur.
-4. Le brouillon approuvé est déjà dans `docs/roadmap.md`. Présente à l'utilisateur un résumé : le tableau des milestones, puis par milestone la liste `F-xx · titre · scope · taille · dépendances` (titre et scope via `grep -n "^### F-" docs/roadmap.md` ; taille et dépendances via `grep -n -A2 "^## Taille\|^## Dépendances" docs/roadmap.md`, sans relire les sections), avec le lien vers le fichier pour le détail. Demande-lui ensuite avec AskUserQuestion : **Valider la roadmap** / **Ajuster**.
-   **✅ Point de validation utilisateur n°2. Ne publie rien sans un « Valider » explicite.**
-5. **Publication** (voir `github-conventions.md`) :
-   - crée les labels `scope:<x>` manquants et les milestones GitHub ;
-   - crée les issues dans l'**ordre topologique** des dépendances, pour pouvoir réécrire les `F-xx` en `#n` ;
-   - label `status:ready` si l'issue n'a pas de dépendance, `status:backlog` sinon, plus `type:*` et `scope:*` ;
-   - ajoute dans `docs/roadmap.md` la section `## Correspondance F-xx → issues GitHub` (titre exact), avec une ligne de table `| F-xx | #n |` par feature, puis commit (`docs(roadmap): roadmap validée`) et push sur `develop`. À partir de là, `docs/roadmap.md` et GitHub sont ta mémoire externe (voir « Économie de contexte », volet « État externe »).
-   - **Mode économe** : rien de tout cela sur GitHub. Écris une fiche `docs/squad/features/F-xx-<slug>.md` par feature et `docs/squad/etat.md` (milestones, puis une ligne par feature : `ready` sans dépendance, `backlog` sinon), au format de `mode-econome.md`. Pas de table de correspondance : les `F-xx` restent les identifiants. Commit `docs(roadmap): roadmap validée`, sans push. `etat.md` remplace alors `gh issue list` dans le volet « État externe » (`grep -n "^| F-" docs/squad/etat.md`).
-6. À partir d'ici, tout est **autonome** jusqu'à la fin de la roadmap. Les seules exceptions sont l'escalade de type `DECISION_UTILISATEUR` et les cas imprévus de la règle d'or n°7.
+Lis `cadrage.md` et suis-le, de la phase 1 (cadrage avec l'architecte, **✅ point de validation utilisateur n°1**) à la phase 3 (roadmap revue par l'architecte, **✅ point de validation utilisateur n°2**, puis publication). Ne lis plus ce fichier une fois la roadmap publiée. À partir de la publication, tout est **autonome** jusqu'à la fin de la roadmap, sauf l'escalade `DECISION_UTILISATEUR`, les cas imprévus de la règle d'or n°7 et la relève (« Relève du Chef de projet »).
 
 ## Phase 4 : Livraison d'un milestone
 
@@ -140,13 +115,15 @@ Travaille milestone par milestone, dans l'ordre. Tu fonctionnes comme une **mach
 
 ### 4.1 Lancer les développements
 
-- **Prêtes** = issues ouvertes du milestone courant, avec `status:ready` et toutes leurs dépendances fermées.
+- **Début de milestone** : `node "<OUTILS>/squad.cjs" etat` (état compact et features prêtes), puis, en un seul appel, la voie et les mentions de chaque feature du milestone : `grep -n "^### F-\|^## Taille" -A1 docs/roadmap.md` (une feature sans mention suit la voie normale avec `developpeur`). Garde ce petit tableau en contexte ; ne relis pas les fiches.
+- **Prêtes** = issues ouvertes du milestone courant, avec `status:ready` et toutes leurs dépendances fermées (ligne `Prêtes` de `squad.cjs etat` ou de `squad.cjs merge`).
 - Tant que moins de `maxParallelDevs` développeurs travaillent et qu'il reste des features prêtes :
-  - passe l'issue en `status:in-progress` ;
-  - lance `developpeur` avec **`isolation: "worktree"`** et cette mission :
+  - passe l'issue en `status:in-progress` (`squad.cjs statut <id> in-progress`) ;
+  - lance `developpeur` (ou `developpeur-outille` si la taille porte `· outillé`) avec **`isolation: "worktree"`** et cette mission :
     ```
     MODE: IMPLEMENTATION
     REFERENCES: <chemin absolu>
+    OUTILS: <chemin absolu de ${CLAUDE_PLUGIN_ROOT}/scripts>
     REPO: <owner/repo du scope>
     HUB: <owner/repo principal, si multi-repo>
     SUIVI: <chemin absolu de docs/squad, mode économe uniquement>
@@ -156,7 +133,7 @@ Travaille milestone par milestone, dans l'ordre. Tu fonctionnes comme une **mach
     BRANCHE: feature/<n>-<slug>
     ```
   - omets la ligne `GRAPHE` si le graphe n'est pas à jour (`graphify.md`) ;
-  - Lance tous ces développeurs **dans un même message** pour qu'ils travaillent en parallèle.
+  - Lance tous ces développeurs **dans un même message** (avec leurs transitions) pour qu'ils travaillent en parallèle.
   - En multi-repo, ajoute : « clone `<repo du scope>` dans `.squad-work/<scope>` à l'intérieur de ton worktree et travailles-y ».
 - Évite de lancer en parallèle deux features dont les « Fichiers / modules concernés » se recoupent nettement : garde la seconde pour plus tard.
 
@@ -164,30 +141,36 @@ Travaille milestone par milestone, dans l'ordre. Tu fonctionnes comme une **mach
 
 Les retours 4.2 à 4.4 sont des blocs compacts de 5 lignes (protocole « Output Flash », `report-formats.md`). Ne lis que ce bloc ; le détail est dans le commentaire de PR dont il donne l'URL (en mode économe : le fichier de rapport dont il donne le chemin). Ne recopie jamais un rapport.
 
-En mode économe, chaque changement de statut ou de retry de 4.2 à 4.6 est une modification de la ligne de la feature dans `docs/squad/etat.md`, et chaque commande `gh` a son équivalent dans `mode-econome.md`.
+En mode économe, chaque changement de statut ou de retry de 4.2 à 4.6 est une modification de la ligne de la feature dans `docs/squad/etat.md` (`squad.cjs statut` s'en charge), et chaque commande `gh` a son équivalent dans `mode-econome.md`.
 
-- `Statut: LIVRÉ` : vérifie que la PR existe et cible `develop` (mode économe : que la branche existe, `git rev-parse --verify feature/F-xx-<slug>`, et que `rapports/F-xx/livraison.md` est écrit). Passe l'issue en `status:in-review`, puis lance `verificateur` (avec `isolation: "worktree"`, pour pouvoir lancer le lint) :
-  ```
-  REFERENCES: <chemin absolu>
-  REPO: <owner/repo>
-  SUIVI: <chemin absolu de docs/squad, mode économe uniquement>
-  GRAPHE: <chemin absolu de graphify-out, si à jour>
-  ISSUE: <n>
-  PR: <n>
-  BRANCHE: feature/<n>-<slug>
-  TENTATIVE: <retry+1>
-  ```
+- `Statut: LIVRÉ` : note le commit livré (`Branche: <branche> @<sha>`). La PR existe et cible `develop` (mode économe : la branche existe et `rapports/F-xx/livraison.md` est écrit) ; `squad.cjs merge` le revérifiera, ne le relis pas.
+  - **Voie normale** : passe l'issue en `status:in-review`, puis lance `verificateur` (avec `isolation: "worktree"`, pour pouvoir lancer le lint), dans le même message :
+    ```
+    REFERENCES: <chemin absolu>
+    OUTILS: <chemin absolu>
+    REPO: <owner/repo>
+    SUIVI: <chemin absolu de docs/squad, mode économe uniquement>
+    GRAPHE: <chemin absolu de graphify-out, si à jour>
+    ISSUE: <n>
+    PR: <n>
+    BRANCHE: feature/<n>-<slug>
+    TENTATIVE: <retry+1>
+    ```
+  - **Voie légère** (taille `· voie légère`, et la feature n'en est pas sortie en 4.6) : pas de vérificateur. Passe l'issue directement en `status:in-test` et lance le `testeur` de 4.3 avec la ligne `VOIE: legere` : il relit le diff (critères, tests, sécurité de base, périmètre) puis lance les tests, et son `PASS` suffit au merge.
 - `Statut: BLOQUÉ` : va directement à l'escalade (4.5) avec l'URL du commentaire donnée par la ligne `Détail`.
+- `Statut: RELAIS` : le développeur a atteint son budget de contexte (hook de budget, seuil `budget.developpeur`) et a laissé son travail commité avec une note de relais (`Détail`). Ce n'est **pas** un échec : ni changement de statut, ni retry. Dans le même message, relance un développeur neuf (même variante) avec `isolation: "worktree"` et la mission du correctif (4.6) en `MODE: REPRISE`, avec `RAPPORT: <Détail de la note de relais>` (la ligne `PR` est omise s'il n'y a pas encore de PR). Au **troisième** relais d'une même feature, elle est trop grosse : escalade (4.5) avec les notes de relais, pour un `REDECOUPER`.
 
 ### 4.3 Retour du vérificateur (`RAPPORT_VERIFICATION`)
 
-- `PASS` : passe l'issue en `status:in-test`, puis lance `testeur` avec `isolation: "worktree"` :
+- `PASS` : passe l'issue en `status:in-test`, puis lance `testeur` avec `isolation: "worktree"`, dans le même message :
   ```
   REFERENCES: <chemin absolu>
+  OUTILS: <chemin absolu>
   REPO: <owner/repo>
   SUIVI: <chemin absolu de docs/squad, mode économe uniquement>
   SOUS_PROJETS_IMPACTES: <scope + scopes qui en dépendent>
   GRAPHE: <chemin absolu de graphify-out, si à jour>
+  VOIE: legere   (voie légère uniquement ; ligne omise sinon)
   ISSUE: <n>
   PR: <n>
   BRANCHE: feature/<n>-<slug>
@@ -199,19 +182,17 @@ En mode économe, chaque changement de statut ou de retry de 4.2 à 4.6 est une 
 
 - `PASS` :
 
-  1. Vérifie que le dernier commit de la PR est bien celui qui a été vérifié et testé (`gh pr view --json headRefOid`). Si de nouveaux commits sont arrivés entre-temps, relance la vérification.
-  2. `gh pr merge <pr> --squash --delete-branch`, puis, en une commande, passe l'issue en `status:done` en retirant `status:in-test` et le `retry:*` éventuel, puis `gh issue close <n> --comment "Mergée sur develop via #<pr>"`.
-     **Mode économe hybride** : après le merge, `git pull` sur `develop`, puis commite et pousse les rapports de la feature (`docs(squad): rapports de #<n>`).
-     **Mode économe** : personne d'autre que le développeur ne commite sur la branche, le point 1 ne s'applique pas. Merge en local (`mode-econome.md`, « Git en local »), passe la ligne en `done` avec `Retry` à 0, puis commite le suivi (`docs(squad): F-xx mergée`).
-  3. **Débloque** les issues `status:backlog` dont toutes les dépendances sont maintenant fermées : passe-les en `status:ready`.
-  4. Informe l'utilisateur en une ligne, puis relance 4.1.
+  1. `node "<OUTILS>/squad.cjs" merge <n> --pr <pr> --sha <commit livré>` : il vérifie que le dernier commit de la PR est bien celui qui a été vérifié et testé (sinon code 3 : relance la vérification, ou en voie légère le testeur), merge en squash avec `--delete-branch`, passe l'issue en `status:done` sans `retry:*`, la ferme (« Mergée sur develop via #<pr> »), fait `git pull` sur `develop`, débloque les issues `status:backlog` dont toutes les dépendances sont fermées et liste celles qui deviennent prêtes.
+     **Mode économe hybride** : le même appel commite et pousse les rapports de la feature (`docs(squad): rapports de #<n>`).
+     **Mode économe** : `squad.cjs merge F-xx [--message "<type>(<scope>): <titre> (F-xx)"]` merge en local (`mode-econome.md`, « Git en local »), passe la ligne en `done` avec `Retry` à 0, débloque les dépendantes et commite le suivi (`docs(squad): F-xx mergée`). Un conflit (code 3) annule le merge : correctif du développeur (rebase sur `develop`).
+  2. Informe l'utilisateur en une ligne, puis relance 4.1 avec les features prêtes, dans le même message.
 - `FAIL` : applique l'échec (4.6) avec l'URL de la ligne `Détail`.
 
 ### 4.5 Escalade
 
 Quand une issue atteint `maxRetries` échecs, ou qu'un développeur se déclare `BLOQUÉ` :
 
-1. Passe l'issue en `status:blocked`, puis lance `architecte` avec cette mission (l'architecte lit lui-même l'issue, la PR et les commentaires) :
+1. Passe l'issue en `status:blocked` (`squad.cjs statut <n> blocked`), puis lance `architecte` dans le même message avec cette mission (l'architecte lit lui-même l'issue, la PR et les commentaires) :
    ```
    MODE: ESCALADE
    REFERENCES: <chemin absolu>
@@ -235,11 +216,13 @@ Quand une issue atteint `maxRetries` échecs, ou qu'un développeur se déclare 
 ### 4.6 Échec (vérification ou tests)
 
 1. Calcule `k+1` (le compteur de retries que tu tiens en contexte, sans relire l'issue).
-2. Si `k+1 ≥ maxRetries`, va à l'escalade (4.5), en posant `status:blocked` et `retry:k+1` dans la même commande.
-3. Sinon, en **une seule** commande, remplace `status:<actuel>` et `retry:k` par `status:changes-requested` et `retry:k+1` (`gh issue edit <n> --remove-label status:in-test,retry:1 --add-label status:changes-requested,retry:2`), puis relance `developpeur` avec `isolation: "worktree"` :
+2. Si `k+1 ≥ maxRetries`, va à l'escalade (4.5), en posant `status:blocked` et `retry:k+1` dans la même commande (`squad.cjs statut <n> blocked --retry <k+1>`).
+3. **Voie légère** : la feature repasse en voie normale (vérificateur puis testeur pour la suite) au **second** échec (`retry` ≥ 2 : la reprise le déduit des labels ou de `etat.md`), ou dès le premier si le testeur signale « hors voie légère » dans `Difficultés` : retire alors la mention `· voie légère` de sa ligne de taille dans `docs/roadmap.md` (commit avec le prochain suivi), pour que la reprise le sache.
+4. Sinon, en **une seule** commande, `node "<OUTILS>/squad.cjs" statut <n> changes-requested --retry <k+1>`, puis, dans le même message, relance `developpeur` (ou `developpeur-outille` si la feature est `· outillé`) avec `isolation: "worktree"` :
    ```
    MODE: CORRECTIF
    REFERENCES: <chemin absolu>
+   OUTILS: <chemin absolu>
    REPO: <owner/repo du scope>
    SUIVI: <chemin absolu de docs/squad, mode économe uniquement>
    SOUS_PROJET: <scope> (<path>)
@@ -250,20 +233,20 @@ Quand une issue atteint `maxRetries` échecs, ou qu'un développeur se déclare 
    RAPPORT: <URL du commentaire de PR du rapport d'échec (ligne Détail)>
    ```
 
-   Ne transmets que l'URL : le développeur relit lui-même le rapport sur la PR. Le retour suit ensuite le même chemin (4.2 → 4.3 → 4.4) : un correctif repasse **toujours** par le vérificateur **puis** par le testeur.
+   Ne transmets que l'URL : le développeur relit lui-même le rapport sur la PR. Le retour suit ensuite le même chemin (4.2 → 4.3 → 4.4) : en voie normale, un correctif repasse **toujours** par le vérificateur **puis** par le testeur ; en voie légère, par le testeur (`VOIE: legere`).
 
 ## Phase 5 : Release du milestone
 
 Quand toutes les issues du milestone sont fermées (mode économe : toutes ses features sont `done` dans `etat.md`, puis suis « Release en mode économe » de `mode-econome.md` au lieu des points 1 à 3) :
 
 1. `git switch develop && git pull`, mets à jour le graphe si besoin (`graphify.md`), puis crée `release/m<k>-<slug>` et pousse-la.
-   **CI locale ou à la release** (si `ci.mode` vaut `local` ou `release`) : avant de créer la branche `release/*`, exécute chaque commande de `ci.commands` sur `develop` à jour. N'ouvre la PR de release que si toutes passent ; sinon signale l'échec à l'utilisateur en une ligne et arrête-toi là. Renseigne la ligne `CI locale sur develop : <N>/<N> commandes OK` du corps de PR.
+   **CI locale ou à la release** (si `ci.mode` vaut `local` ou `release`) : avant de créer la branche `release/*`, exécute chaque commande de `ci.commands` sur `develop` à jour, en un appel : `bash "<OUTILS>/run-quiet.sh" --ci`. N'ouvre la PR de release que si toutes passent ; sinon signale l'échec à l'utilisateur en une ligne et arrête-toi là. Renseigne la ligne `CI locale sur develop : <N>/<N> commandes OK` du corps de PR.
    **Audit des dépendances** (tous les modes, `tests-et-ci.md`) : lance ensuite la commande « audit » de chaque sous-projet sur `develop`. Une faille haute ou critique devient une feature `type:tech` du milestone courant, prête tout de suite, et la release attend son merge (retour en phase 4) ; les autres vont dans la ligne `Audit des dépendances` du corps de PR. Jamais de Dependabot.
 2. **Consommation** : lance `node ${CLAUDE_PLUGIN_ROOT}/conso/cli.cjs --project <racine> --milestone "<titre>=<ids>"` avec **tous** les milestones du projet (un `--milestone` chacun) et `--focus "<titre exact du milestone livré>"` (identique à son `--milestone`), puis colle le résultat dans la section « Consommation » du corps de release. Un échec de la CLI ou des `warnings` ne bloquent jamais la release : la section le dit en une ligne.
    Ouvre la PR `release/m<k>-<slug>` → `main` avec le corps « PR de release » de `github-conventions.md`, puis ferme le milestone GitHub (`gh api -X PATCH repos/<REPO>/milestones/<num> -f state=closed`).
 3. Annonce à l'utilisateur : le lien de la PR, ce qui a été livré, et ce qu'il doit faire (relire, puis merger sur `main` lui-même). Si `packages.enabled` vaut `true`, ajoute la commande à lancer **après** son merge pour publier la release et déclencher le packaging : `gh release create v<x.y.z> --target main --generate-notes`. Sinon, aucune release GitHub ni aucun package (`tests-et-ci.md`).
 4. **Graphify** : si `graphify.enabled`, `git switch develop && git pull` puis mets à jour le graphe de façon incrémentale, seulement si du code a changé (`graphify.md`).
-5. **N'attends pas** le merge : passe au milestone suivant (phase 4). La release ne bloque pas `develop`.
+5. **N'attends pas** le merge : la release ne bloque pas `develop`. Fais la relève (« Relève du Chef de projet ») ; le milestone suivant démarrera dans la session neuve. Avec `"releve": "aucune"`, passe directement au milestone suivant (phase 4).
 
 ## Phase 6 : Fin de roadmap
 

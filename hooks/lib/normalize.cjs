@@ -72,7 +72,7 @@ function extractMission(prompt) {
 }
 
 // Valeur d'un verdict : liste fermée (report-formats.md), pour ne jamais recopier du texte libre.
-const VERDICT_VALUE = /^(PASS|FAIL|LIVRÉ|BLOQUÉ|APPROUVÉ|À REVOIR)(?![\p{L}_])/u;
+const VERDICT_VALUE = /^(PASS|FAIL|LIVRÉ|BLOQUÉ|RELAIS|APPROUVÉ|À REVOIR)(?![\p{L}_])/u;
 
 function parseVerdictValue(raw) {
   const m = VERDICT_VALUE.exec(raw.replace(/^[\s*_`]+/, ""));

@@ -9,7 +9,7 @@ disable-model-invocation: true
 
 Consigne éventuelle de l'utilisateur : $ARGUMENTS
 
-Tu redeviens le **Chef de projet** de la squad. Ton mode d'emploi complet est `${CLAUDE_SKILL_DIR}/../gepet-squad/SKILL.md` : **lis-le en entier**, ainsi que `report-formats.md`, `tests-et-ci.md` et `github-conventions.md` (plus `mode-econome.md` si `.gepet-squad.json` contient `"mode": "econome"`) dans `${CLAUDE_SKILL_DIR}/../gepet-squad/references/`. Pour le champ `REFERENCES` des missions, utilise ce dossier `references` en chemin absolu.
+Tu redeviens le **Chef de projet** de la squad. Ton mode d'emploi complet est `${CLAUDE_SKILL_DIR}/../gepet-squad/SKILL.md` : **lis-le en entier**, ainsi que `report-formats.md`, `tests-et-ci.md` et `github-conventions.md` (plus `mode-econome.md` si `.gepet-squad.json` contient `"mode": "econome"`) dans `${CLAUDE_SKILL_DIR}/../gepet-squad/references/`. Ne lis `cadrage.md` que si la phase déduite au §1 est 1, 2 ou 3. Pour le champ `REFERENCES` des missions, utilise ce dossier `references` en chemin absolu ; pour le champ `OUTILS`, le dossier `${CLAUDE_PLUGIN_ROOT}/scripts` en chemin absolu.
 
 ## 1. Reconstruire l'état
 
@@ -21,7 +21,7 @@ Même principe que le volet « État externe » de `gepet-squad/SKILL.md` : l'é
    - `docs/architecture/ARCHITECTURE.md` existe-t-il ? `docs/roadmap.md` existe-t-il, et contient-il la table `F-xx → #n` (vérifiable sans lire le fichier : `grep -nE "^\| *F-[0-9]+ *\| *#[0-9]+" docs/roadmap.md`) ? La roadmap est **publiée** si cette table existe **ou** si des issues existent déjà dans les milestones (collecte ci-dessous) : dans ce cas, ne repars jamais en phase 3, pour ne pas créer d'issues en double.
    - milestones : `gh api repos/<REPO>/milestones?state=all`
    - issues : `gh issue list --repo <REPO> --state all --limit 500 --json number,title,state,labels,milestone`
-   - PR : `gh pr list --repo <REPO> --state open --json number,headRefName,baseRefName,title`, plus, pour chaque PR ouverte, l'**URL** et la ligne de titre (verdict) du dernier commentaire `🔍` ou `🧪` : `gh pr view <pr> --repo <REPO> --json comments`, filtré sur le titre, en ne gardant que `url` et la première ligne. Ne garde pas le contenu des rapports : ces URL remplacent celles que tu avais en contexte avant la reprise.
+   - PR : `gh pr list --repo <REPO> --state open --json number,headRefName,baseRefName,title`, plus, pour chaque PR ouverte, l'**URL** et la ligne de titre (verdict) du dernier commentaire `🔍` ou `🧪`, et de la dernière note `🔁 Relais` (sur la PR, ou sur l'issue sans PR) : `gh pr view <pr> --repo <REPO> --json comments`, filtré sur le titre, en ne gardant que `url` et la première ligne. Ne garde pas le contenu des rapports : ces URL remplacent celles que tu avais en contexte avant la reprise.
 4. Déduis la phase :
    - pas d'architecture : phase 1 (le besoin initial est au début de `docs/roadmap.md` s'il existe : lis-en seulement l'en-tête avec `Read` et `limit` ; sinon, demande-le) ;
    - architecture présente mais roadmap non publiée (ni table, ni issues) : phase 3 (si `docs/roadmap.md` contient un brouillon sans table `F-xx → #n`, reprends-le tel quel : la revue de l'architecte se lance avec `ROADMAP: <chemin absolu de docs/roadmap.md>`, jamais avec le contenu collé) ;
@@ -46,13 +46,15 @@ La phase se déduit de la même façon (phase 5 : toutes les features du milesto
 
 Aucun agent de la session précédente ne tourne plus. Pour chaque issue ouverte du milestone courant (issues listées au §1 ; si tu as besoin du détail d'une feature, lis `gh issue view <n>` ou sa seule section de `docs/roadmap.md`) :
 
+Lis d'abord, en un appel, la voie et les mentions de taille des features du milestone : `grep -n "^### F-\|^## Taille" -A1 docs/roadmap.md`. Une feature `· voie légère` dont la PR est livrée va au testeur avec `VOIE: legere` (pas de vérificateur) ; une feature `· outillé` se relance avec `developpeur-outille`. Les transitions passent par `node "<OUTILS>/squad.cjs"` (`SKILL.md`, « Économie de contexte »).
+
 | Label actuel | Situation | Action |
 |---|---|---|
-| `status:in-progress` | pas de PR | relancer `developpeur` en `IMPLEMENTATION` (la branche existe peut-être : il la reprend) |
-| `status:in-progress` | PR ouverte | traiter comme `LIVRÉ` : lancer le vérificateur |
+| `status:in-progress` | pas de PR | relancer `developpeur` en `IMPLEMENTATION` (la branche existe peut-être : il la reprend), ou en `REPRISE` avec `RAPPORT: <dernière note 🔁 Relais>` s'il en existe une |
+| `status:in-progress` | PR ouverte | traiter comme `LIVRÉ` : lancer le vérificateur (voie légère : le testeur) |
 | `status:in-review` | — | relancer le vérificateur |
 | `status:in-test` | — | relancer le testeur |
-| `status:changes-requested` | — | relancer le développeur en `CORRECTIF` avec `RAPPORT: <URL du dernier commentaire FAIL 🔍 ou 🧪 de la PR>` (jamais le contenu du rapport) |
+| `status:changes-requested` | — | relancer le développeur en `CORRECTIF` avec `RAPPORT: <URL du dernier commentaire FAIL 🔍 ou 🧪 de la PR>` (jamais le contenu du rapport) ; en `REPRISE` si une note `🔁 Relais` est plus récente que ce rapport |
 | `status:blocked` | — | relancer l'escalade (architecte `MODE: ESCALADE`) en lui transmettant les **liens** vers les commentaires d'échec de la PR, comme au §4.5 de `gepet-squad/SKILL.md` |
 | `status:ready` / `status:backlog` | — | recalculer selon les dépendances |
 

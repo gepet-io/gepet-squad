@@ -8,10 +8,10 @@ Chaque agent répond au Chef de projet **uniquement** avec le bloc de son mode. 
 
 Une mission ne contient que des instructions et des références : l'agent lit lui-même l'issue, la PR, `docs/architecture/` et le graphe. Les champs vont du **plus stable au plus variable**, un par ligne, pour que le début du prompt soit identique d'un appel à l'autre (préfixe stable, cache de prompt) :
 
-1. `MODE` (absent pour le vérificateur et le testeur) ;
-2. `REFERENCES` ;
+1. `MODE` (absent pour le vérificateur et le testeur ; développeur : `IMPLEMENTATION`, `CORRECTIF` ou `REPRISE` après un relais) ;
+2. `REFERENCES`, puis `OUTILS` (chemin absolu du dossier `scripts` du plugin : `run-quiet.sh`, et pour le CP `squad.cjs`) ;
 3. `REPO` (puis `HUB`, `REPO_EXISTANT`, puis `SUIVI` : chemin absolu de `docs/squad`, en mode économe uniquement ; `REPO` vaut alors `local`) ;
-4. `SOUS_PROJET` / `SOUS_PROJETS_IMPACTES`, puis `GRAPHE` (ligne omise si le graphe n'est pas à jour), puis `SKILLS_DISPONIBLES` ;
+4. `SOUS_PROJET` / `SOUS_PROJETS_IMPACTES`, puis `GRAPHE` (ligne omise si le graphe n'est pas à jour), puis `VOIE` (testeur uniquement : `legere` en voie légère, ligne omise en voie normale), puis `SKILLS_DISPONIBLES` ;
 5. `ISSUE` (numéro, ou `F-xx` en mode économe), `PR` (omis en mode économe), `BRANCHE`, `TENTATIVE`, `ROADMAP` (chemin absolu du brouillon de roadmap écrit sur disque, en `REVUE_ROADMAP` uniquement : jamais son contenu) ;
 6. le texte libre en dernier : `RAPPORT` (URL du commentaire de PR, ou chemin absolu du fichier de rapport en mode économe), `BESOIN` (mot pour mot, donnée de l'utilisateur).
 
@@ -114,13 +114,26 @@ Les agents d'exécution (développeur, vérificateur, testeur) répondent au CP 
 
 ```
 RAPPORT_DEV
-Statut: LIVRÉ | BLOQUÉ — Issue: #<n> — PR: #<n> | aucune — Branche: <branche> — tentative <k>
+Statut: LIVRÉ | BLOQUÉ | RELAIS — Issue: #<n> — PR: #<n> | aucune — Branche: <branche> @<sha court du dernier commit> — tentative <k>
 Critères: <tenus>/<total> — Tests: <N> passés / <M> échoués
 Difficultés: <une phrase, ou « aucune » ; en BLOQUÉ, le point bloquant>
-Détail: <URL du commentaire de PR « Livraison » ou « Correctifs tentative N »>
+Détail: <URL du commentaire de PR « Livraison » ou « Correctifs tentative N », ou de la note « 🔁 Relais k »>
 ```
 
-`PR: aucune` si le développeur est `BLOQUÉ` avant d'avoir ouvert une PR (le `Détail` pointe alors vers un commentaire de l'issue). `tentative <k>` vaut `0` en `MODE: IMPLEMENTATION` ; en `MODE: CORRECTIF`, c'est la tentative du rapport d'échec traité.
+`RELAIS` : budget de contexte atteint (hook de budget) ; le travail est commité sur la branche et la note de relais (contenu ci-dessous) dit ce qui reste à faire. Le CP relance un développeur neuf en `MODE: REPRISE`, sans compter d'échec. Le `@<sha>` est le commit livré (`git rev-parse --short HEAD`) : le CP le passe à `squad.cjs merge --sha` pour s'assurer que c'est bien ce commit qui a été vérifié et testé. `PR: aucune` si le développeur est `BLOQUÉ` avant d'avoir ouvert une PR (le `Détail` pointe alors vers un commentaire de l'issue). `tentative <k>` vaut `0` en `MODE: IMPLEMENTATION` ; en `MODE: CORRECTIF`, c'est la tentative du rapport d'échec traité.
+
+### Note de relais (Développeur, `Statut: RELAIS`)
+
+Titre : `🔁 Relais <k>` (commentaire de la PR, ou de l'issue sans PR ; fichier `relais-<k>.md` en mode économe).
+
+```
+### Mission d'origine
+### Fait
+### Reste à faire
+1. <action précise : fichier, fonction, test>
+### Pistes et pièges
+### Fichiers clés
+```
 
 ### Contenu du commentaire de PR (Développeur)
 
@@ -173,18 +186,22 @@ Titre : `🔍 Vérification — tentative <k> — PASS|FAIL`.
 ```
 RAPPORT_TESTS
 Verdict: PASS | FAIL — Issue: #<n> — PR: #<n> — tentative <k>
-Tests: candidat <N> passés / <M> échoués (baseline <N0> / <M0> | baseline non lancée) — Régressions et défauts: <r>
+Tests: candidat <N> passés / <M> échoués (baseline <N0> / <M0> | baseline non lancée) — Régressions et défauts: <r> [— Relecture: <b> bloquant(s)]
 Difficultés: <une phrase, ou « aucune » ; réserve éventuelle>
 Détail: <URL du commentaire de PR « 🧪 Tests de non-régression »>
 ```
 
-En `FAIL`, le bloc donne le **nombre** de régressions et défauts, jamais leur détail. La baseline n'est lancée que si le candidat a des échecs (`baseline non lancée` sinon) : voir `agents/testeur.md`.
+En `FAIL`, le bloc donne le **nombre** de régressions et défauts, jamais leur détail. `— Relecture: …` n'apparaît qu'en voie légère (`VOIE: legere`), où la relecture du testeur remplace le vérificateur. La baseline n'est lancée que si le candidat a des échecs (`baseline non lancée` sinon) : voir `agents/testeur.md`.
 
 ### Contenu du commentaire de PR (Testeur)
 
 Titre : `🧪 Tests de non-régression — tentative <k> — PASS|FAIL`.
 
 ```
+### Relecture (voie légère uniquement)
+- ✅|❌ <critère> — <fichier:ligne>
+1. <fichier:ligne> — <problème bloquant> → <correction attendue>
+Remarques mineures : <…>
 ### Résultats
 | Sous-projet | Baseline develop | Candidat (PR + develop) |
 | <x> | non lancée | 131 ✅ / 0 ❌ |

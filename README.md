@@ -70,6 +70,13 @@ La squad limite les tokens consommés sans réduire le contrôle :
 - **Rapports Flash** : développeur, vérificateur et testeur répondent par un bloc de 5 lignes ; le détail reste dans un commentaire de PR (voir `report-formats.md`).
 - **Cache de prompt** : les champs d'une mission vont du plus stable au plus variable, pour que le début du prompt soit identique d'un appel à l'autre et profite du cache de prompt d'Anthropic.
 - **État externe** : le Chef de projet ne garde que des numéros et des verdicts. Il relit l'état sur GitHub et la feature concernée dans `docs/roadmap.md` (section ciblée, jamais le fichier entier), et la revue de roadmap par l'architecte se fait sur le chemin du fichier, pas sur son contenu collé.
+- **Contextes courts** ([ADR 0014](docs/architecture/adr/0014-sobriete-de-contexte.md)). Chaque appel relit tout le contexte de l'agent : un contexte qui grossit coûte de plus en plus cher.
+  - **Relais** : au-delà de 120 000 tokens de contexte, le hook de budget demande au développeur de commiter son travail, d'écrire une note de relais et de passer la main à un développeur neuf (`MODE: REPRISE`).
+  - **Relève** : à la fin de chaque milestone, ou au-delà de 250 000 tokens, le Chef de projet s'arrête à un point calme et vous demande `/clear` puis `/gepet-squad-resume`. `"releve": "aucune"` dans `.gepet-squad.json` enchaîne les milestones sans relève ; `"budget": { "developpeur": …, "chefDeProjet": … }` règle les seuils (`0` désactive).
+  - **Sorties bornées** : les tests et la CI locale passent par `scripts/run-quiet.sh` (verdict et lignes d'erreur seulement, log complet dans un fichier), au premier plan, sans attente active.
+  - **Transitions en une commande** : `scripts/squad.cjs` (`etat`, `statut`, `merge`) remplace les suites de commandes `gh` et `git` du Chef de projet.
+  - **Skills à la demande** : seule la variante `developpeur-outille` a l'outil Skill, pour les features marquées `· outillé`.
+  - **Voie légère** : une petite feature sans enjeu (taille `S · voie légère`) passe par le développeur puis le testeur, qui relit et teste, sans vérificateur.
 
 ### Voir ce que consomme la squad
 
@@ -202,28 +209,30 @@ claude --plugin-dir <chemin du clone>
 | Quoi                                                          | Où                                                                   |
 | ------------------------------------------------------------- | --------------------------------------------------------------------- |
 | Nombre de devs en parallèle, nombre d'échecs avant escalade | `.gepet-squad.json` du projet (`maxParallelDevs`, `maxRetries`) |
+| Seuils de contexte, relève, zones sensibles                  | `.gepet-squad.json` du projet (`budget`, `releve`, `sensitivePaths`) |
 | Modèle et effort d'un rôle                                  | frontmatter `model:` / `effort:` dans `agents/<role>.md`        |
 | Format des features, des rapports et de la roadmap            | `skills/gepet-squad/references/`                                    |
 | Règles du garde-fou                                          | `hooks/guard.cjs`                                                   |
 
 ## Garde-fou et collecteur
 
-Deux hooks agissent dans un repo qui contient `.gepet-squad.json` ; ailleurs, ils n'ont aucun effet.
+Trois hooks agissent dans un repo qui contient `.gepet-squad.json` ; ailleurs, ils n'ont aucun effet.
 
 - **Garde-fou** (`hooks/guard.cjs`, bloquant) : il refuse pour Claude le push direct sur `main`, le force-push sur `develop`, le merge d'une PR vers `main` et tout `git merge` sur `main`. En mode économe, il refuse aussi tout `git push` et les commandes `gh` qui écrivent sur GitHub. Le merge des releases reste votre décision.
 - **Collecteur d'événements** (`hooks/events.cjs`, asynchrone) : il alimente le journal local de la vue 3D. Étant déclaré en `async`, il ne ralentit pas la session, ne bloque aucune action, ne produit rien sur la sortie standard et trace ses éventuelles erreurs dans `collector.log` au lieu de les remonter. Ce qu'il écrit est décrit dans « La vue 3D ».
+- **Budget de contexte** (`hooks/budget.cjs`, après chaque appel d'outil) : il lit la fin du transcript du développeur ou du Chef de projet et, au premier franchissement du seuil, ajoute une consigne de relais ou de relève dans leur contexte. Il ne bloque rien et ne fait rien pour les autres agents.
 
 ## Structure
 
 ```
 .claude-plugin/   plugin.json, marketplace.json
-agents/           architecte, developpeur, verificateur, testeur
+agents/           architecte, developpeur (et developpeur-outille), verificateur, testeur
 skills/           gepet-squad (Chef de projet + references/), gepet-squad-resume, gepet-squad-status, gepet-squad-viz
-scripts/          bootstrap.sh, vendor-three.sh, vendor-assets.sh
-hooks/            hooks.json, guard.cjs (garde-fou), events.cjs (collecteur) et lib/
+scripts/          bootstrap.sh, squad.cjs (transitions du CP), run-quiet.sh (sorties bornées), vendor-three.sh, vendor-assets.sh
+hooks/            hooks.json, guard.cjs (garde-fou), events.cjs (collecteur), budget.cjs (budget de contexte) et lib/
 viz/              server.cjs (serveur local, CLI start / status / stop), lib/, public/ (page 3D, Three.js et assets Kenney vendorisés)
 docs/             architecture (ARCHITECTURE.md, ADR) et roadmap
-tests/            tests node:test (hooks, viz-server, viz-web, skills)
+tests/            tests node:test (hooks, scripts, viz-server, viz-web, skills)
 ```
 
 ## Licence

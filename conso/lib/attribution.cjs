@@ -47,11 +47,17 @@ function missionTextFromLine(line) {
   return "";
 }
 
-/** `agentType` sans préfixe de la squad ; null si l'agent n'est pas de la squad. */
+// Variantes d'un rôle : même rôle pour la consommation (agents/developpeur-outille.md).
+const ROLE_ALIASES = { "developpeur-outille": "developpeur" };
+
+/** `agentType` sans préfixe de la squad (variante ramenée à son rôle) ; null si l'agent n'est pas de la squad. */
 function roleOf(agentType) {
   if (typeof agentType !== "string") return null;
   for (const prefix of PREFIXES) {
-    if (agentType.startsWith(prefix) && agentType.length > prefix.length) return agentType.slice(prefix.length);
+    if (agentType.startsWith(prefix) && agentType.length > prefix.length) {
+      const role = agentType.slice(prefix.length);
+      return Object.hasOwn(ROLE_ALIASES, role) ? ROLE_ALIASES[role] : role;
+    }
   }
   return null;
 }
