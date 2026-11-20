@@ -93,6 +93,7 @@ test("roleOf retire les deux préfixes", () => {
   assert.equal(roleOf("gepet-squad:testeur"), "testeur");
   assert.equal(roleOf("claude-gepet-squad:architecte"), "architecte");
   assert.equal(roleOf("general-purpose"), null);
+  assert.equal(roleOf("gepet-squad:developpeur-outille"), "developpeur");
 });
 
 const u = (n) => ({ input: n, output: 0, cacheRead: 0, cacheWrite: 0 });

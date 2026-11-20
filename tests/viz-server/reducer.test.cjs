@@ -1465,6 +1465,12 @@ describe("préfixe des agents : nouveau (gepet-squad:) et ancien (claude-gepet-s
     }
   });
 
+  test("la variante developpeur-outille s'affiche comme un développeur, au poste dev", () => {
+    assert.equal(typeOf("gepet-squad:developpeur-outille"), "developpeur");
+    const state = reduce(snapshot([]), [ev("agent.requested", 1, { toolUseId: "tO", agentType: "gepet-squad:developpeur-outille", issue: 3 })], at(2));
+    assert.equal(state.agents[0].station, "dev");
+  });
+
   test("un agent d'un autre plugin ne prend pas la station d'un agent de la squad", () => {
     const state = reduce(snapshot([]), [ev("agent.requested", 1, { toolUseId: "tX", agentType: "autre-plugin:developpeur", issue: 3 })], at(2));
     assert.notEqual(state.agents[0].type, "developpeur");

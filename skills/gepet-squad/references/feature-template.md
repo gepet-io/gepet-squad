@@ -30,7 +30,7 @@ Titre de l'issue : `[<scope>] <verbe à l'infinitif> <résultat>`, par exemple `
 - <#n ou F-xx : feature qui doit être mergée avant>, ou « aucune »
 
 ## Taille
-S | M
+S | M [· voie légère] [· outillé]
 ```
 
 ## Règles (vérifiées par le CP avant publication et par l'architecte en revue)
@@ -42,3 +42,6 @@ S | M
 5. Un sous-projet par feature (un seul label `scope:*`). Les contrats entre sous-projets (schéma d'API, événements) sont des features à part, réalisées avant leurs consommateurs.
 6. Le premier milestone commence par le **socle** : initialisation des sous-projets, outillage de tests (commandes « tests essentiels » et « tests complexes »), lint, build, CI et fichier `.gepet-squad.json`. Si `ci.mode` vaut `local` (toujours le cas en mode économe), le socle ne crée **pas** de workflow GitHub Actions : il définit à la place `ci.commands` dans `.gepet-squad.json` (installation, lint, build, tests essentiels). Sinon, il définit aussi `ci.commands`, crée le workflow minimal de `tests-et-ci.md` (déclenché sur les PR vers `main` si `ci.mode` vaut `release`), et `release.yml` seulement si `packages.enabled` vaut `true`.
 7. **Tests sobres** (`tests-et-ci.md`) : les critères de tests demandent l'essentiel (1 à 3 tests par critère fonctionnel, un test d'intégration par frontière d'I/O), jamais une couverture exhaustive. Un critère « Tests complexes » n'apparaît que pour un parcours critique qui le justifie.
+8. **Mentions de taille** (proposées par l'architecte en revue, tranchées par le CP) :
+   - `· voie légère` : la feature passe par le développeur puis le testeur seul, qui relit et teste (pas de vérificateur). **Toutes** ces conditions sont requises : taille `S` ; aucun nouveau message réseau, aucune modification de protocole ni d'authentification ; aucun fichier dans les zones sensibles de `.gepet-squad.json` (`sensitivePaths`, comparé aux « Fichiers / modules concernés ») ; aucune nouvelle donnée persistée ni secret ; aucun critère « Tests complexes ». Dans le doute : voie normale.
+   - `· outillé` : la section « Skills / outils recommandés » cite au moins un skill Claude utile au développeur ; le CP lance alors `developpeur-outille` (qui a l'outil Skill) au lieu de `developpeur`. Sans cette mention, la feature n'a pas besoin de skill.

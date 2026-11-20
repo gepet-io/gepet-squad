@@ -1,5 +1,5 @@
 {
-  "description": "Hooks gepet-squad : garde-fou (dans un repo contenant .gepet-squad.json, bloque le push direct sur main, le force-push sur develop et le merge des PR vers main) et collecteur d'événements asynchrone (journal local pour la vue du projet).",
+  "description": "Hooks gepet-squad : garde-fou (dans un repo contenant .gepet-squad.json, bloque le push direct sur main, le force-push sur develop et le merge des PR vers main) et collecteur d'événements asynchrone (journal local pour la vue du projet), et budget de contexte (au-delà d'un seuil, demande au développeur un relais et au Chef de projet une relève).",
   "hooks": {
     "PreToolUse": [
       {
@@ -55,6 +55,16 @@
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/events.cjs\"",
             "async": true,
             "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/budget.cjs\"",
+            "timeout": 10
           }
         ]
       }

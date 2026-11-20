@@ -1,6 +1,6 @@
 # Architecture — gepet-squad : visualisation 3D temps réel (`/gepet-squad-viz`) et consommation
 
-> Statut : validée par l'utilisateur le 2026-10-30. Évolution « bureau 3D » validée le 2026-11-13 (ADR 0009 à 0011). Évolution « consommation » validée le 2026-11-16 (ADR 0012 et 0013). Toute évolution passe par un nouvel ADR.
+> Statut : validée par l'utilisateur le 2026-10-30. Évolution « bureau 3D » validée le 2026-11-13 (ADR 0009 à 0011). Évolution « consommation » validée le 2026-11-16 (ADR 0012 et 0013). Évolution « sobriété de contexte » le 2026-11-20 (ADR 0014). Toute évolution passe par un nouvel ADR.
 
 ## 1. Besoin
 

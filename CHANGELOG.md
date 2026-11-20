@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.12.0 — 2026-11-20
+
+Sobriété de contexte ([ADR 0014](docs/architecture/adr/0014-sobriete-de-contexte.md)). Sur un projet réel, 96 % des tokens sont des relectures de cache : le coût vient des contextes longs (développeurs 57 %, Chef de projet 29 %), bien plus que du nombre d'agents (vérificateurs 4 %).
+
+- **Relais du développeur.** Nouveau hook `hooks/budget.cjs` (`PostToolUse`, synchrone) : il lit la fin du transcript de l'agent et, au-delà de `budget.developpeur` tokens de contexte (120 000 par défaut), demande au développeur de commiter son travail, d'écrire une note `🔁 Relais <k>` et de rendre `Statut: RELAIS`. Le CP relance un développeur neuf en `MODE: REPRISE`, sans compter d'échec ; au troisième relais, escalade.
+- **Relève du Chef de projet.** À la fin de chaque milestone (clé `releve`, `milestone` par défaut, `aucune` pour l'ancien enchaînement) ou au-delà de `budget.chefDeProjet` (250 000), le CP atteint un point calme et demande `/clear` puis `/gepet-squad-resume`.
+- **`scripts/squad.cjs`** (`etat`, `statut`, `merge`) : une commande à sortie courte remplace les suites `gh` / `git` / `Edit` du CP, dans les trois modes. Il applique lui-même les règles du garde-fou (merge vers `develop` seulement, ni `gh` ni push en économe local) et journalise ses commandes `gh` pour la vue 3D. `merge --sha` refuse une PR qui a reçu des commits après la livraison : le bloc `RAPPORT_DEV` donne désormais `Branche: <branche> @<sha>`.
+- **`scripts/run-quiet.sh`** : log complet dans un fichier, sortie limitée au verdict, aux lignes d'erreur et à la fin du log ; `--ci` enchaîne les `ci.commands`. Développeur, vérificateur, testeur et CP l'utilisent, au premier plan, sans attente active. Lecture ciblée de `ARCHITECTURE.md` et du code.
+- **`Skill` réservé à `developpeur-outille`.** Le développeur n'a plus l'outil Skill (la liste des skills pesait 8 à 9k tokens dans chacun de ses appels). La nouvelle variante `developpeur-outille` le garde et relit les instructions de `agents/developpeur.md` ; le CP la lance pour une feature `· outillé`. Conso et vue 3D la rangent sous `developpeur`.
+- **Voie légère.** Une feature `S · voie légère` (sans réseau, protocole, authentification, persistance, zone sensible ni test complexe) passe par le développeur puis le testeur (`VOIE: legere`), qui relit le diff avec une grille courte avant de tester ; son `PASS` suffit au merge. Retour en voie normale au second échec ou si le testeur la juge hors voie légère. Nouvelle clé `sensitivePaths`, renseignée depuis la ligne `Zones sensibles` du PITCH.
+- **Rapports de secours.** Si la sandbox du worktree refuse l'écriture dans `docs/squad/`, l'agent écrit son rapport dans le dossier temporaire et le CP le recopie sans le lire.
+- **`SKILL.md` allégé.** Les phases 1 à 3 passent dans `references/cadrage.md`, lu seulement tant que la roadmap n'est pas publiée.
+
+**Limites connues :** ces changements sont des consignes de prompt et des scripts testés en isolation, pas encore exécutés sur un cycle squad complet. Les gains (−27 à −39 % sur les développeurs, −42 à −52 % sur le CP) viennent d'une simulation sur des transcripts réels et sont optimistes.
+
 ## 0.11.0 — 2026-11-16
 
 Consommation visible : l'utilisateur voit ce que consomme la squad, en tokens bruts.

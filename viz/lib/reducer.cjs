@@ -165,11 +165,15 @@ function posInt(value) {
   return Number.isInteger(value) && value >= 1 ? value : null;
 }
 
+// Variantes d'un rôle, affichées comme le rôle lui-même (agents/developpeur-outille.md).
+const TYPE_ALIASES = { "developpeur-outille": "developpeur" };
+
 function shortType(agentType) {
   const s = str(agentType);
   if (s === null) return null;
   const prefix = AGENT_PREFIXES.find((p) => s.startsWith(p));
-  return prefix === undefined ? s : s.slice(prefix.length);
+  const short = prefix === undefined ? s : s.slice(prefix.length);
+  return Object.hasOwn(TYPE_ALIASES, short) ? TYPE_ALIASES[short] : short;
 }
 
 function stationForStatus(status) {

@@ -27,6 +27,12 @@ Clé `"mode": "econome" | "normal"` : écrite par le bootstrap selon le choix de
 
 Clé optionnelle `"packages": { "enabled": false | true }` (mode normal) : `true` seulement si l'utilisateur a accepté les packages au cadrage ; voir `tests-et-ci.md`. Absente : pas de package.
 
+Clé optionnelle `"sensitivePaths": ["apps/api/src/auth", "infra/"]` : zones sensibles déclarées par l'architecte (ligne `Zones sensibles` du PITCH), écrites par le CP à la fin du cadrage. Une feature qui touche l'un de ces chemins ne prend jamais la voie légère (`feature-template.md`, règle 8). Absente : aucune zone déclarée, le CP juge sur les autres conditions.
+
+Clé optionnelle `"releve": "milestone" | "aucune"` (absente : `milestone`) : à la fin de chaque milestone, le Chef de projet passe la main à une session neuve (`/clear` puis `/gepet-squad-resume`) ; `aucune` enchaîne les milestones dans la même session, au prix d'un contexte qui grossit (`SKILL.md`, « Relève du Chef de projet »).
+
+Clé optionnelle `"budget": { "developpeur": 120000, "chefDeProjet": 250000 }` : seuils de contexte (tokens relus à chaque appel) du hook de budget (`hooks/budget.cjs`). Au-delà, le développeur fait un relais et le Chef de projet une relève ; `0` désactive. Absente : ces valeurs par défaut.
+
 Clé optionnelle `"graphify": { "enabled": true }` : active le graphe de connaissances du code (voir `graphify.md`). `graphify-out/` n'est jamais versionné.
 
 Clé `"ci": { "mode": "release" | "local" | "github", "commands": ["…"] }` : elle règle où tournent les contrôles de qualité (table complète dans `tests-et-ci.md`).
@@ -75,6 +81,8 @@ Ne jamais pousser directement sur `main`. Le hook `guard.cjs` bloque `git push �
 `gh issue edit <n> --repo <REPO> --remove-label status:<ancien> --add-label status:<nouveau>`
 `gh issue edit <n> --repo <REPO> --remove-label status:in-test,retry:1 --add-label status:changes-requested,retry:2`
 Ne relis pas l'issue avant de la modifier : son statut courant est celui que tu as posé à la transition précédente.
+
+Le CP passe par `node "<OUTILS>/squad.cjs" statut <n> <statut> [--retry <k>]`, qui construit cette commande (il retire tous les autres `status:*`, et les `retry:*` quand le compteur change) ; `squad.cjs merge` enchaîne les commandes de merge ci-dessous, et `squad.cjs etat` remplace `gh issue list` par un résumé de quelques lignes.
 
 ## Commandes de référence
 

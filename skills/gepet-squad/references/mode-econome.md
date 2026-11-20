@@ -51,6 +51,7 @@ docs/squad/
     verification-t1.md            vérificateur, tentative 1
     tests-t1.md                   testeur, tentative 1
     correctifs-t1.md              développeur, correctif du rapport d'échec de la tentative 1
+    relais-1.md                   développeur, note de relais (budget de contexte atteint)
   releases/m1-<slug>.md           note de release (l'équivalent du corps de PR de release)
 ```
 
@@ -58,10 +59,11 @@ docs/squad/
 - `livraison.md` commence par le « Corps de PR de feature » de `github-conventions.md` (sans `Closes #n`), suivi du contenu « Développeur ».
 - Le **chemin absolu** de `docs/squad` dans le checkout principal (celui du CP, sur `develop`) est transmis aux agents dans le champ `SUIVI`. Les agents lisent les fiches et écrivent leurs rapports **à ce chemin**, jamais dans leur worktree : ces fichiers ne vont jamais dans une branche de feature.
 - Le vérificateur et le testeur n'ont pas d'outil d'écriture : ils écrivent leur rapport avec Bash (`cat > "<SUIVI>/rapports/F-xx/verification-t<k>.md" <<'EOF'`). C'est la seule écriture qui leur est permise.
+- **Rapport de secours** : si la sandbox du worktree refuse l'écriture dans `<SUIVI>` (local ou hybride), l'agent écrit le même fichier dans `${TMPDIR:-/tmp}/gepet-squad-rapports/<ISSUE>/` et en donne le chemin dans `Détail` ; le CP le recopie dans `<SUIVI>/rapports/<ISSUE>/` avec `cp`, sans le lire, dans le même message que la transition.
 
 ## `docs/squad/etat.md`
 
-Créé par le CP à la publication de la roadmap. Une ligne par feature, que le CP modifie avec `Edit` à chaque transition (une seule ligne à la fois). Il se lit sans tout charger : `grep -n "^| F-" docs/squad/etat.md`.
+Créé par le CP à la publication de la roadmap. Une ligne par feature, que le CP modifie à chaque transition avec `node "<OUTILS>/squad.cjs" statut F-xx <statut> [--retry <k>]` (une seule ligne à la fois ; à défaut, `Edit`). Il se lit sans tout charger : `node "<OUTILS>/squad.cjs" etat` (résumé du milestone et features prêtes), ou `grep -n "^| F-" docs/squad/etat.md`. Le script repère les colonnes par leur titre : garde les en-têtes ci-dessous.
 
 ```markdown
 # État du projet — <nom>
@@ -92,7 +94,7 @@ Statut d'un milestone : `à venir`, `en cours`, `release prête` (branche `relea
 - Le CP travaille dans le checkout principal, sur `develop`, et n'en change pas (sauf pour créer la branche de release sans la quitter : `git branch release/m<k>-<slug> develop`).
 - Les agents partent des **branches locales**, jamais de `origin/…` : `develop` au lieu de `origin/develop`, `feature/F-xx-<slug>` au lieu de `origin/feature/…`. Pas de `git fetch` ni de `git pull` : les worktrees partagent les branches du dépôt.
 - Une branche ne peut être active que dans un seul worktree : le développeur termine toujours sa mission par `git switch --detach`, pour libérer sa branche (correctif suivant, merge du CP).
-- Merge d'une feature par le CP, sur `develop` :
+- Merge d'une feature par le CP, sur `develop`, en un appel : `node "<OUTILS>/squad.cjs" merge F-xx [--message "<type>(<scope>): <titre> (F-xx)"]` (squash, commit, suppression de la branche, ligne en `done`, déblocage des dépendantes, commit du suivi). Ce qu'il fait, si tu dois le faire à la main :
   ```bash
   git merge --squash feature/F-xx-<slug>
   git commit -m "<type>(<scope>): <titre> (F-xx)"
@@ -127,7 +129,7 @@ Les blocs « Output Flash » ne changent pas, sauf : `Issue: F-xx`, `PR: local`,
 
 ## Reprise et avancement
 
-`/gepet-squad-resume` et `/gepet-squad-status` lisent `etat.md` (et les fichiers de `rapports/`) au lieu de GitHub. Une feature `in-progress` dont `rapports/F-xx/livraison.md` existe est traitée comme livrée ; le dernier rapport `FAIL` d'une feature est le fichier `verification-t<k>.md` ou `tests-t<k>.md` de plus grand `k` dont le titre finit par `FAIL`.
+`/gepet-squad-resume` et `/gepet-squad-status` lisent `etat.md` (et les fichiers de `rapports/`) au lieu de GitHub. Une feature `in-progress` dont `rapports/F-xx/livraison.md` existe est traitée comme livrée ; sans livraison mais avec un `relais-<k>.md`, elle reprend en `MODE: REPRISE` sur la note de plus grand `k` (de même pour une feature `changes-requested` dont la note de relais est plus récente que le dernier rapport d'échec) ; le dernier rapport `FAIL` d'une feature est le fichier `verification-t<k>.md` ou `tests-t<k>.md` de plus grand `k` dont le titre finit par `FAIL`.
 
 ## Limites
 
